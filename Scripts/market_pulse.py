@@ -1,3 +1,6 @@
+from openpyxl import load_workbook
+from openpyxl.styles import Font
+
 """
 =========================================================
 AQSD Professional
@@ -75,11 +78,49 @@ def get_market(symbol):
     df["RSI"] = calculate_rsi(df["Close"])
 
     return df
+
+
+def save_market_pulse(results, bias, confidence, strategy):
+
+    if not OUTPUT_FILE.exists():
+        print("Dashboard.xlsx not found.")
+        return
+
+    wb = load_workbook(OUTPUT_FILE)
+
+    if "Market Pulse" in wb.sheetnames:
+        del wb["Market Pulse"]
+
+    ws = wb.create_sheet("Market Pulse", 0)
+
+    ws["A1"] = "AQSD MARKET PULSE"
+    ws["A1"].font = Font(size=16, bold=True)
+
+    ws.append([])
+
+    ws.append(["Index", "Close", "EMA20", "EMA50", "RSI"])
+
+    for row in results:
+        ws.append(row)
+
+    ws.append([])
+
+    ws.append(["Market Bias", bias])
+    ws.append(["Confidence", f"{confidence}%"])
+    ws.append(["Strategy", strategy])
+
+    wb.save(OUTPUT_FILE)
+
+    print("\nMarket Pulse saved to Dashboard.xlsx")
+
+
 # =======================================================
 # MARKET PULSE
 # =======================================================
 
 print("\nAQSD MARKET PULSE\n")
+
+results = []
 
 market_score = 0
 
@@ -149,3 +190,10 @@ print("Market Bias :", bias)
 print("Confidence  :", confidence,"%")
 print("Strategy    :", strategy)
 print("="*45)
+
+save_market_pulse(
+    results,
+    bias,
+    confidence,
+    strategy
+)
