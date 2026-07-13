@@ -75,12 +75,13 @@ def get_market(symbol):
     df["RSI"] = calculate_rsi(df["Close"])
 
     return df
-
 # =======================================================
-# TEST
+# MARKET PULSE
 # =======================================================
 
 print("\nAQSD MARKET PULSE\n")
+
+market_score = 0
 
 for name, symbol in MARKETS.items():
 
@@ -89,21 +90,62 @@ for name, symbol in MARKETS.items():
     df = get_market(symbol)
 
     if df is None:
-        print("Failed\n")
         continue
 
     last = df.iloc[-1]
 
+    close = last["Close"]
+    ema20 = last["EMA20"]
+    ema50 = last["EMA50"]
+    rsi = last["RSI"]
+
+    if close > ema20:
+        market_score += 15
+
+    if ema20 > ema50:
+        market_score += 15
+
+    if rsi > 55:
+        market_score += 10
+
     print("--------------------------------")
-
     print(name)
-
-    print("Close :", round(last["Close"],2))
-
-    print("EMA20 :", round(last["EMA20"],2))
-
-    print("EMA50 :", round(last["EMA50"],2))
-
-    print("RSI   :", round(last["RSI"],2))
-
+    print(f"Close : {close:.2f}")
+    print(f"EMA20 : {ema20:.2f}")
+    print(f"EMA50 : {ema50:.2f}")
+    print(f"RSI   : {rsi:.2f}")
     print()
+
+# INDIA VIX Bonus
+# Lower VIX is positive
+
+vix = get_market("^INDIAVIX")
+
+if vix is not None:
+
+    last = vix.iloc[-1]
+
+    if last["Close"] < last["EMA20"]:
+        market_score += 20
+
+confidence = min(market_score,100)
+
+if confidence >= 75:
+    bias = "🟢 BULLISH"
+    strategy = "CALL BUYING"
+
+elif confidence >= 50:
+    bias = "🟡 NEUTRAL"
+    strategy = "WAIT"
+
+else:
+    bias = "🔴 BEARISH"
+    strategy = "PUT BUYING"
+
+print("="*45)
+print("AQSD MARKET PULSE")
+print("="*45)
+print("Market Bias :", bias)
+print("Confidence  :", confidence,"%")
+print("Strategy    :", strategy)
+print("="*45)
