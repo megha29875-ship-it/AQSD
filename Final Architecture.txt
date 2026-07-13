@@ -1,0 +1,22 @@
+AQSD
+│
+├── AQSD.py                ← Run this only
+│
+├── update_fno.py          ← Update current NSE F&O list
+├── market_pulse.py        ← NIFTY/BANKNIFTY/VIX
+├── scanner.py             ← Scan all stocks
+├── dashboard.py           ← Format Excel
+│
+├── indicators.py
+├── scoring.py
+├── planner.py
+├── config.py
+│
+├── Data
+│     FnO_Stocks.xlsx
+│
+├── Output
+│
+├── Logs
+│
+└── Backup
