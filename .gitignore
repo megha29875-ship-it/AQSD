@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Excel Output
+Output/
+
+# Logs
+Logs/
+
+# Temporary files
+*.tmp
+*.log
+
+# Excel backups
+Data/*backup*.xlsx
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/
+
+# Python virtual env
+venv/
