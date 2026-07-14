@@ -317,7 +317,7 @@ symbols = symbols[symbols.ne("")]
 option_results = []
 investment_results = []
 
-print("Starting AQSD Recommendation Engine v1.0...\n")
+print("Starting AQSD Bidirectional Option Engine v3.0...\n")
 print(f"Stocks to scan: {len(symbols)}\n")
 
 
@@ -595,20 +595,63 @@ investment_df = investment_df.sort_values(
 
 investment_df.insert(0, "Rank", range(1, len(investment_df) + 1))
 
+call_df = option_df[
+    option_df["Recommendation"].isin(
+        ["STRONG CALL", "CALL BUY", "CALL WATCH"]
+    )
+].copy()
+
+put_df = option_df[
+    option_df["Recommendation"].isin(
+        ["STRONG PUT", "PUT BUY", "PUT WATCH"]
+    )
+].copy()
+
+call_df = call_df.sort_values(
+    by=["Trade Score", "Trade Confidence"],
+    ascending=[False, False],
+).reset_index(drop=True)
+
+put_df = put_df.sort_values(
+    by=["Trade Score", "Trade Confidence"],
+    ascending=[False, False],
+).reset_index(drop=True)
+
+if not call_df.empty:
+    call_df["Rank"] = range(1, len(call_df) + 1)
+
+if not put_df.empty:
+    put_df["Rank"] = range(1, len(put_df) + 1)
+
 summary_df = pd.DataFrame(
     {
         "Metric": [
-            "Stocks Scanned", "Strong Buy", "Buy", "Watch", "Wait", "Avoid",
-            "Fresh ST Buy", "20D Breakout", "Volume Breakout",
+            "Stocks Scanned",
+            "Strong Call",
+            "Call Buy",
+            "Call Watch",
+            "Strong Put",
+            "Put Buy",
+            "Put Watch",
+            "Wait",
+            "Avoid",
+            "Fresh ST Buy",
+            "Fresh ST Sell",
+            "20D Breakout",
+            "Volume Breakout",
         ],
         "Value": [
             len(option_df),
-            int((option_df["Recommendation"] == "STRONG BUY").sum()),
-            int((option_df["Recommendation"] == "BUY").sum()),
-            int((option_df["Recommendation"] == "WATCH").sum()),
+            int((option_df["Recommendation"] == "STRONG CALL").sum()),
+            int((option_df["Recommendation"] == "CALL BUY").sum()),
+            int((option_df["Recommendation"] == "CALL WATCH").sum()),
+            int((option_df["Recommendation"] == "STRONG PUT").sum()),
+            int((option_df["Recommendation"] == "PUT BUY").sum()),
+            int((option_df["Recommendation"] == "PUT WATCH").sum()),
             int((option_df["Recommendation"] == "WAIT").sum()),
             int((option_df["Recommendation"] == "AVOID").sum()),
             int((option_df["Fresh ST Buy"] == "YES").sum()),
+            int((option_df["Fresh ST Sell"] == "YES").sum()),
             int((option_df["20D Breakout"] == "YES").sum()),
             int((option_df["Volume Breakout"] == "YES").sum()),
         ],
@@ -629,6 +672,8 @@ try:
 
     with pd.ExcelWriter(**writer_kwargs) as writer:
         option_df.to_excel(writer, sheet_name="Option Buying", index=False)
+        call_df.to_excel(writer, sheet_name="CALL Candidates", index=False)
+        put_df.to_excel(writer, sheet_name="PUT Candidates", index=False)
         investment_df.to_excel(writer, sheet_name="Long Term", index=False)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
@@ -636,15 +681,43 @@ except PermissionError:
     print("\nClose Dashboard.xlsx and run again.")
     raise SystemExit(1)
 
-print("\nAQSD Recommendation Engine v1.0 completed successfully.\n")
+print("\nAQSD Bidirectional Option Engine v3.0 completed successfully.\n")
 
-print(
-    option_df[
-        [
-            "Rank", "Symbol", "ST Signal", "RSI14", "ADX14",
-            "Volume Ratio", "20D Breakout", "Trade Score", "Trade Confidence", "Trade Grade", "Stars", "Recommendation",
-        ]
-    ].to_string(index=False)
-)
+print("\nTOP CALL CANDIDATES\n")
+if call_df.empty:
+    print("No CALL candidates.")
+else:
+    print(
+        call_df[
+            [
+                "Rank",
+                "Symbol",
+                "Trade Score",
+                "Trade Confidence",
+                "Trade Grade",
+                "Stars",
+                "Recommendation",
+            ]
+        ].head(15).to_string(index=False)
+    )
+
+print("\nTOP PUT CANDIDATES\n")
+if put_df.empty:
+    print("No PUT candidates.")
+else:
+    print(
+        put_df[
+            [
+                "Rank",
+                "Symbol",
+                "Trade Score",
+                "Trade Confidence",
+                "Trade Grade",
+                "Stars",
+                "Recommendation",
+            ]
+        ].head(15).to_string(index=False)
+    )
+
 
 print(f"\nDashboard saved at:\n{OUTPUT_FILE}")
