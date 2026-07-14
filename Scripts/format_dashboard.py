@@ -2,7 +2,7 @@
 """
 AQSD Professional
 Module: Dashboard Formatter
-Version: 2.0
+Version: 3.0
 """
 
 from __future__ import annotations
@@ -11,31 +11,24 @@ from datetime import datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
-from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 
 BASE = Path(__file__).resolve().parent.parent
 DASHBOARD = BASE / "Output" / "Dashboard.xlsx"
 
-
 NAVY = "17365D"
 BLUE = "D9EAF7"
-LIGHT_BLUE = "EAF3F8"
 GREEN = "C6EFCE"
-DARK_GREEN = "006100"
 YELLOW = "FFF2CC"
 RED = "FFC7CE"
-DARK_RED = "9C0006"
 GOLD = "FFD966"
 WHITE = "FFFFFF"
 GREY = "E7E6E6"
-
 THIN = Side(style="thin", color="D9D9D9")
 
 
-def header_map(ws) -> dict[str, int]:
+def headers(ws):
     return {
         str(cell.value).strip(): cell.column
         for cell in ws[1]
@@ -43,185 +36,7 @@ def header_map(ws) -> dict[str, int]:
     }
 
 
-def style_table(ws) -> None:
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    ws.sheet_view.showGridLines = False
-    ws.row_dimensions[1].height = 26
-
-    for cell in ws[1]:
-        cell.fill = PatternFill("solid", fgColor=NAVY)
-        cell.font = Font(color=WHITE, bold=True)
-        cell.alignment = Alignment(
-            horizontal="center",
-            vertical="center",
-            wrap_text=True,
-        )
-        cell.border = Border(bottom=THIN)
-
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.border = Border(bottom=THIN)
-            cell.alignment = Alignment(vertical="center")
-
-    for col_index, cells in enumerate(ws.columns, start=1):
-        maximum = 0
-
-        for cell in cells:
-            value = "" if cell.value is None else str(cell.value)
-            maximum = max(maximum, len(value))
-
-        width = min(max(maximum + 2, 10), 38)
-        ws.column_dimensions[get_column_letter(col_index)].width = width
-
-
-def format_option_sheet(ws) -> None:
-    style_table(ws)
-    headers = header_map(ws)
-
-    action_col = (
-        headers.get("Recommendation")
-        or headers.get("Action")
-    )
-    rank_col = headers.get("Rank")
-    score_col = (
-        headers.get("Trade Score")
-        or headers.get("Option Score")
-    )
-    confidence_col = (
-        headers.get("Trade Confidence")
-        or headers.get("Confidence")
-    )
-    reasons_col = headers.get("Reasons")
-
-    for row in range(2, ws.max_row + 1):
-        action = (
-            str(ws.cell(row, action_col).value or "").upper()
-            if action_col
-            else ""
-        )
-
-        if action in {"STRONG BUY", "BUY"}:
-            fill = PatternFill("solid", fgColor=GREEN)
-            action_font = Font(color=DARK_GREEN, bold=True)
-        elif action in {"WATCH", "WAIT"}:
-            fill = PatternFill("solid", fgColor=YELLOW)
-            action_font = Font(bold=True)
-        elif action == "AVOID":
-            fill = PatternFill("solid", fgColor=RED)
-            action_font = Font(color=DARK_RED, bold=True)
-        else:
-            fill = None
-            action_font = Font()
-
-        if fill:
-            for cell in ws[row]:
-                cell.fill = fill
-
-        if action_col:
-            ws.cell(row, action_col).font = action_font
-
-        if rank_col:
-            rank = ws.cell(row, rank_col).value
-            if isinstance(rank, int) and rank <= 10:
-                ws.cell(row, rank_col).fill = PatternFill(
-                    "solid",
-                    fgColor=GOLD,
-                )
-                ws.cell(row, rank_col).font = Font(bold=True)
-
-    if score_col and ws.max_row >= 2:
-        score_letter = get_column_letter(score_col)
-        ws.conditional_formatting.add(
-            f"{score_letter}2:{score_letter}{ws.max_row}",
-            ColorScaleRule(
-                start_type="num",
-                start_value=0,
-                start_color="F8696B",
-                mid_type="num",
-                mid_value=60,
-                mid_color="FFEB84",
-                end_type="num",
-                end_value=100,
-                end_color="63BE7B",
-            ),
-        )
-
-    if confidence_col:
-        for row in range(2, ws.max_row + 1):
-            ws.cell(row, confidence_col).number_format = '0"%"'
-
-    if reasons_col:
-        ws.column_dimensions[
-            get_column_letter(reasons_col)
-        ].width = 55
-
-        for row in range(2, ws.max_row + 1):
-            ws.cell(row, reasons_col).alignment = Alignment(
-                wrap_text=True,
-                vertical="top",
-            )
-
-
-def format_long_term_sheet(ws) -> None:
-    style_table(ws)
-    headers = header_map(ws)
-
-    action_col = headers.get("Investment Action")
-    rank_col = headers.get("Rank")
-    score_col = headers.get("Investment Score")
-    reasons_col = headers.get("Investment Reasons")
-
-    for row in range(2, ws.max_row + 1):
-        action = (
-            str(ws.cell(row, action_col).value or "").upper()
-            if action_col
-            else ""
-        )
-
-        if action in {"STRONG", "ACCUMULATE"}:
-            fill = PatternFill("solid", fgColor=GREEN)
-        elif action == "WATCH":
-            fill = PatternFill("solid", fgColor=YELLOW)
-        else:
-            fill = PatternFill("solid", fgColor=RED)
-
-        for cell in ws[row]:
-            cell.fill = fill
-
-        if rank_col:
-            rank = ws.cell(row, rank_col).value
-            if isinstance(rank, int) and rank <= 10:
-                ws.cell(row, rank_col).fill = PatternFill(
-                    "solid",
-                    fgColor=GOLD,
-                )
-                ws.cell(row, rank_col).font = Font(bold=True)
-
-    if score_col and ws.max_row >= 2:
-        score_letter = get_column_letter(score_col)
-        ws.conditional_formatting.add(
-            f"{score_letter}2:{score_letter}{ws.max_row}",
-            ColorScaleRule(
-                start_type="num",
-                start_value=0,
-                start_color="F8696B",
-                mid_type="num",
-                mid_value=60,
-                mid_color="FFEB84",
-                end_type="num",
-                end_value=100,
-                end_color="63BE7B",
-            ),
-        )
-
-    if reasons_col:
-        ws.column_dimensions[
-            get_column_letter(reasons_col)
-        ].width = 55
-
-
-def get_market_summary(wb) -> tuple[str, str, str]:
+def market_summary(wb):
     if "Market Pulse" not in wb.sheetnames:
         return "UNKNOWN", "", ""
 
@@ -243,196 +58,200 @@ def get_market_summary(wb) -> tuple[str, str, str]:
     return bias, confidence, strategy
 
 
-def create_home_sheet(wb) -> None:
+def create_home(wb):
     if "HOME" in wb.sheetnames:
         del wb["HOME"]
 
     ws = wb.create_sheet("HOME", 0)
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:H2")
+    # Title
+    ws.merge_cells("A1:N2")
     ws["A1"] = "AQSD PROFESSIONAL DASHBOARD"
     ws["A1"].font = Font(size=22, bold=True, color=WHITE)
     ws["A1"].fill = PatternFill("solid", fgColor=NAVY)
-    ws["A1"].alignment = Alignment(
-        horizontal="center",
-        vertical="center",
-    )
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
     ws["A4"] = "Last Updated"
     ws["B4"] = datetime.now().strftime("%d-%m-%Y %H:%M")
 
-    bias, confidence, strategy = get_market_summary(wb)
+    bias, confidence, strategy = market_summary(wb)
 
+    # Market pulse card
+    ws.merge_cells("A6:C6")
     ws["A6"] = "MARKET PULSE"
     ws["A6"].font = Font(bold=True, color=WHITE)
     ws["A6"].fill = PatternFill("solid", fgColor=NAVY)
+    ws["A6"].alignment = Alignment(horizontal="center")
 
-    market_rows = [
+    pulse_rows = [
         ("Market Bias", bias),
         ("Confidence", confidence),
         ("Strategy", strategy),
     ]
 
-    for row_number, (label, value) in enumerate(
-        market_rows,
-        start=7,
-    ):
-        ws[f"A{row_number}"] = label
-        ws[f"B{row_number}"] = value
-        ws[f"A{row_number}"].fill = PatternFill(
-            "solid",
-            fgColor=BLUE,
-        )
-        ws[f"A{row_number}"].font = Font(bold=True)
+    for row_no, (label, value) in enumerate(pulse_rows, start=7):
+        ws[f"A{row_no}"] = label
+        ws[f"B{row_no}"] = value
+        ws[f"A{row_no}"].font = Font(bold=True)
+        ws[f"A{row_no}"].fill = PatternFill("solid", fgColor=BLUE)
 
-    if str(bias).upper() == "BULLISH":
+    bias_upper = str(bias).upper()
+    if bias_upper == "BULLISH":
         ws["B7"].fill = PatternFill("solid", fgColor=GREEN)
-    elif str(bias).upper() == "BEARISH":
+    elif bias_upper == "BEARISH":
         ws["B7"].fill = PatternFill("solid", fgColor=RED)
     else:
         ws["B7"].fill = PatternFill("solid", fgColor=YELLOW)
 
     option_ws = wb["Option Buying"]
-    headers = header_map(option_ws)
+    h = headers(option_ws)
 
-    action_col = (
-        headers.get("Recommendation")
-        or headers.get("Action")
-    )
-    score_col = (
-        headers.get("Trade Score")
-        or headers.get("Option Score")
-    )
-    symbol_col = headers.get("Symbol")
-    grade_col = (
-        headers.get("Trade Grade")
-        or headers.get("Grade")
-    )
-    stars_col = headers.get("Stars")
+    symbol_col = h.get("Symbol")
+    score_col = h.get("Trade Score") or h.get("Option Score")
+    conf_col = h.get("Trade Confidence") or h.get("Confidence")
+    grade_col = h.get("Trade Grade") or h.get("Grade")
+    stars_col = h.get("Stars")
+    rec_col = h.get("Recommendation") or h.get("Action")
+    reasons_col = h.get("Reasons")
+    entry_col = h.get("Entry")
+    stop_col = h.get("Stop Loss")
+    t1_col = h.get("Target 1")
+    t2_col = h.get("Target 2")
 
-    counts = {
-        "Stocks Scanned": option_ws.max_row - 1,
-        "Strong Buy": 0,
-        "Buy": 0,
-        "Watch": 0,
-        "Wait": 0,
-        "Avoid": 0,
-    }
+    if option_ws.max_row < 2:
+        raise RuntimeError("Option Buying sheet has no data.")
 
-    if action_col:
-        for row in range(2, option_ws.max_row + 1):
-            action = str(
-                option_ws.cell(row, action_col).value or ""
-            ).title()
+    best_row = 2
 
-            if action in counts:
-                counts[action] += 1
+    def val(col):
+        return option_ws.cell(best_row, col).value if col else ""
 
-    ws["A12"] = "MARKET STATISTICS"
-    ws["A12"].font = Font(bold=True, color=WHITE)
-    ws["A12"].fill = PatternFill("solid", fgColor=NAVY)
+    # Best trade card
+    ws.merge_cells("E4:N4")
+    ws["E4"] = "TODAY'S BEST TRADE"
+    ws["E4"].font = Font(size=16, bold=True, color=WHITE)
+    ws["E4"].fill = PatternFill("solid", fgColor=NAVY)
+    ws["E4"].alignment = Alignment(horizontal="center")
 
-    for row_number, (label, value) in enumerate(
-        counts.items(),
-        start=13,
-    ):
-        ws[f"A{row_number}"] = label
-        ws[f"B{row_number}"] = value
-        ws[f"A{row_number}"].fill = PatternFill(
-            "solid",
-            fgColor=LIGHT_BLUE,
+    ws.merge_cells("E5:N6")
+    ws["E5"] = val(symbol_col)
+    ws["E5"].font = Font(size=24, bold=True, color=NAVY)
+    ws["E5"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("E7:G8")
+    ws["E7"] = f"Score\n{val(score_col)}"
+    ws.merge_cells("H7:J8")
+    ws["H7"] = f"Confidence\n{val(conf_col)}%"
+    ws.merge_cells("K7:N8")
+    ws["K7"] = f"{val(grade_col)}  {val(stars_col)}"
+
+    for cell_ref in ("E7", "H7", "K7"):
+        ws[cell_ref].font = Font(size=14, bold=True)
+        ws[cell_ref].alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
         )
-        ws[f"A{row_number}"].font = Font(bold=True)
+        ws[cell_ref].fill = PatternFill("solid", fgColor=GOLD)
 
-    ws["D4"] = "TOP 10 TRADE SETUPS"
-    ws["D4"].font = Font(bold=True, color=WHITE)
-    ws["D4"].fill = PatternFill("solid", fgColor=NAVY)
+    ws.merge_cells("E9:N9")
+    ws["E9"] = str(val(rec_col))
+    ws["E9"].font = Font(size=18, bold=True)
+    ws["E9"].alignment = Alignment(horizontal="center")
 
-    top_headers = ["Rank", "Symbol", "Score", "Grade", "Stars"]
-    for column, value in enumerate(top_headers, start=4):
-        cell = ws.cell(row=5, column=column, value=value)
+    recommendation = str(val(rec_col)).upper()
+    if recommendation in {"STRONG BUY", "BUY"}:
+        ws["E9"].fill = PatternFill("solid", fgColor=GREEN)
+    elif recommendation in {"WATCH", "WAIT"}:
+        ws["E9"].fill = PatternFill("solid", fgColor=YELLOW)
+    else:
+        ws["E9"].fill = PatternFill("solid", fgColor=RED)
+
+    ws.merge_cells("E10:N12")
+    ws["E10"] = str(val(reasons_col))
+    ws["E10"].alignment = Alignment(
+        wrap_text=True,
+        vertical="top",
+    )
+    ws["E10"].fill = PatternFill("solid", fgColor=GREY)
+
+    # Trade plan
+    trade_plan = [
+        ("Entry", val(entry_col)),
+        ("Stop Loss", val(stop_col)),
+        ("Target 1", val(t1_col)),
+        ("Target 2", val(t2_col)),
+    ]
+
+    for idx, (label, value) in enumerate(trade_plan, start=13):
+        ws[f"E{idx}"] = label
+        ws[f"F{idx}"] = value
+        ws[f"E{idx}"].font = Font(bold=True)
+        ws[f"E{idx}"].fill = PatternFill("solid", fgColor=BLUE)
+
+    # Top 10 table
+    ws.merge_cells("E17:N17")
+    ws["E17"] = "TOP 10 TRADE SETUPS"
+    ws["E17"].font = Font(bold=True, color=WHITE)
+    ws["E17"].fill = PatternFill("solid", fgColor=NAVY)
+    ws["E17"].alignment = Alignment(horizontal="center")
+
+    table_headers = [
+        "Rank", "Symbol", "Score", "Confidence",
+        "Grade", "Stars", "Recommendation"
+    ]
+
+    for col, heading in enumerate(table_headers, start=5):
+        cell = ws.cell(row=18, column=col, value=heading)
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor=GREY)
+        cell.border = Border(bottom=THIN)
 
     for home_row, source_row in enumerate(
         range(2, min(option_ws.max_row, 11) + 1),
-        start=6,
+        start=19,
     ):
-        ws.cell(home_row, 4, home_row - 5)
-        ws.cell(
-            home_row,
-            5,
-            option_ws.cell(source_row, symbol_col).value
-            if symbol_col
-            else "",
-        )
-        ws.cell(
-            home_row,
-            6,
-            option_ws.cell(source_row, score_col).value
-            if score_col
-            else "",
-        )
-        ws.cell(
-            home_row,
-            7,
-            option_ws.cell(source_row, grade_col).value
-            if grade_col
-            else "",
-        )
-        ws.cell(
-            home_row,
-            8,
-            option_ws.cell(source_row, stars_col).value
-            if stars_col
-            else "",
-        )
+        row_values = [
+            home_row - 18,
+            option_ws.cell(source_row, symbol_col).value if symbol_col else "",
+            option_ws.cell(source_row, score_col).value if score_col else "",
+            option_ws.cell(source_row, conf_col).value if conf_col else "",
+            option_ws.cell(source_row, grade_col).value if grade_col else "",
+            option_ws.cell(source_row, stars_col).value if stars_col else "",
+            option_ws.cell(source_row, rec_col).value if rec_col else "",
+        ]
 
-        if home_row <= 15:
-            ws.cell(home_row, 4).fill = PatternFill(
-                "solid",
-                fgColor=GOLD,
-            )
+        for col, value in enumerate(row_values, start=5):
+            ws.cell(home_row, col, value)
+            ws.cell(home_row, col).border = Border(bottom=THIN)
+
+        ws.cell(home_row, 5).fill = PatternFill("solid", fgColor=GOLD)
 
     widths = {
-        "A": 22,
-        "B": 20,
-        "C": 4,
-        "D": 10,
-        "E": 20,
-        "F": 12,
-        "G": 10,
-        "H": 14,
+        "A": 18, "B": 18, "C": 4, "D": 4,
+        "E": 14, "F": 16, "G": 14, "H": 14,
+        "I": 14, "J": 14, "K": 14, "L": 14,
+        "M": 14, "N": 14,
     }
 
     for column, width in widths.items():
         ws.column_dimensions[column].width = width
 
 
-def main() -> None:
+def main():
     if not DASHBOARD.exists():
-        raise FileNotFoundError(
-            f"Dashboard not found:\n{DASHBOARD}"
-        )
+        raise FileNotFoundError(f"Dashboard not found:\n{DASHBOARD}")
 
     wb = load_workbook(DASHBOARD)
 
-    if "Option Buying" in wb.sheetnames:
-        format_option_sheet(wb["Option Buying"])
+    if "Option Buying" not in wb.sheetnames:
+        raise RuntimeError("Option Buying sheet not found.")
 
-    if "Long Term" in wb.sheetnames:
-        format_long_term_sheet(wb["Long Term"])
-
-    if "Summary" in wb.sheetnames:
-        style_table(wb["Summary"])
-
-    if "Option Buying" in wb.sheetnames:
-        create_home_sheet(wb)
-
+    create_home(wb)
     wb.save(DASHBOARD)
 
-    print("AQSD Dashboard v2 formatted successfully.")
+    print("AQSD Trade Card Dashboard created successfully.")
     print(DASHBOARD)
 
 

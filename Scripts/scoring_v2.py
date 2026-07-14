@@ -1,14 +1,15 @@
 
 """
 AQSD Professional
-Module: Scoring Engine
-Version: 2.0
+Module: Bidirectional Scoring Engine
+Version: 3.0
+
+Supports both CALL and PUT setups for 3-7 day option buying.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 
 @dataclass
@@ -47,29 +48,28 @@ def _grade(score: int) -> str:
     return "D"
 
 
-def _option_action(score: int, direction: str) -> str:
+def _recommendation(score: int, direction: str) -> str:
     direction = direction.upper().strip()
 
-    if direction != "BUY":
-        return "AVOID"
+    if direction == "BUY":
+        if score >= 85:
+            return "STRONG CALL"
+        if score >= 72:
+            return "CALL BUY"
+        if score >= 58:
+            return "CALL WATCH"
+        return "WAIT"
 
-    if score >= 85:
-        return "STRONG BUY"
-    if score >= 72:
-        return "BUY"
-    if score >= 58:
-        return "WATCH"
-    return "WAIT"
+    if direction == "SELL":
+        if score >= 85:
+            return "STRONG PUT"
+        if score >= 72:
+            return "PUT BUY"
+        if score >= 58:
+            return "PUT WATCH"
+        return "WAIT"
 
-
-def _investment_action(score: int) -> str:
-    if score >= 82:
-        return "STRONG"
-    if score >= 68:
-        return "ACCUMULATE"
-    if score >= 52:
-        return "WATCH"
-    return "WEAK"
+    return "AVOID"
 
 
 def score_option_setup(
@@ -91,60 +91,96 @@ def score_option_setup(
     market_bias: str = "NEUTRAL",
 ) -> ScoreResult:
     """
-    Score a 3-7 day bullish option-buying setup.
-
-    Returns:
-        ScoreResult with score, confidence, grade, action and reasons.
+    Score both bullish CALL and bearish PUT setups.
     """
+
+    direction = st_direction.upper().strip()
+    signal = st_signal.upper().strip()
+    bias = market_bias.upper().strip()
+    trend = ema_trend.strip()
+
+    bullish = direction == "BUY"
+    bearish = direction == "SELL"
 
     score = 0
     reasons: list[str] = []
 
-    st_direction = st_direction.upper().strip()
-    st_signal = st_signal.upper().strip()
-    ema_trend = ema_trend.strip()
-    market_bias = market_bias.upper().strip()
-
-    # Supertrend: 25 points
-    if st_direction == "BUY":
+    # --------------------------------------------------------
+    # Supertrend
+    # --------------------------------------------------------
+    if bullish:
         score += 18
         reasons.append("Supertrend BUY")
+    elif bearish:
+        score += 18
+        reasons.append("Supertrend SELL")
 
-    if st_signal == "FRESH BUY":
+    if signal == "FRESH BUY" and bullish:
         score += 7
         reasons.append("Fresh Supertrend BUY")
 
-    # EMA structure: 20 points
-    if ema_trend == "Strong Uptrend":
-        score += 20
-        reasons.append("Strong EMA alignment")
-    elif ema_trend == "Uptrend":
-        score += 15
-        reasons.append("EMA uptrend")
-    elif ema_trend == "Pullback":
+    if signal == "FRESH SELL" and bearish:
         score += 7
-        reasons.append("Price above EMA20 pullback")
+        reasons.append("Fresh Supertrend SELL")
 
-    if ema20_cross:
-        score += 5
-        reasons.append("Fresh EMA20 cross")
+    # --------------------------------------------------------
+    # EMA structure
+    # --------------------------------------------------------
+    if bullish:
+        if trend == "Strong Uptrend":
+            score += 20
+            reasons.append("Strong EMA uptrend")
+        elif trend == "Uptrend":
+            score += 15
+            reasons.append("EMA uptrend")
+        elif trend == "Pullback":
+            score += 7
+            reasons.append("Bullish pullback")
 
-    # Momentum: 15 points
-    if 55 <= rsi < 70:
-        score += 12
-        reasons.append("RSI in bullish zone")
-    elif 50 <= rsi < 55:
-        score += 6
-        reasons.append("RSI above 50")
-    elif rsi >= 70:
-        score += 3
-        reasons.append("RSI overbought")
+        if ema20_cross:
+            score += 5
+            reasons.append("Fresh EMA20 bullish cross")
 
-    if rsi_cross_50:
-        score += 3
-        reasons.append("RSI crossed above 50")
+    elif bearish:
+        if trend == "Downtrend":
+            score += 20
+            reasons.append("EMA downtrend")
+        elif trend == "Pullback":
+            score += 7
+            reasons.append("Weak pullback structure")
 
-    # Trend strength: 15 points
+    # --------------------------------------------------------
+    # RSI
+    # --------------------------------------------------------
+    if bullish:
+        if 55 <= rsi < 70:
+            score += 12
+            reasons.append("RSI bullish")
+        elif 50 <= rsi < 55:
+            score += 6
+            reasons.append("RSI above 50")
+        elif rsi >= 70:
+            score += 3
+            reasons.append("RSI overbought")
+
+        if rsi_cross_50:
+            score += 3
+            reasons.append("RSI crossed above 50")
+
+    elif bearish:
+        if 30 < rsi <= 45:
+            score += 12
+            reasons.append("RSI bearish")
+        elif 45 < rsi < 50:
+            score += 6
+            reasons.append("RSI below 50")
+        elif rsi <= 30:
+            score += 3
+            reasons.append("RSI oversold")
+
+    # --------------------------------------------------------
+    # ADX and directional movement
+    # --------------------------------------------------------
     if adx >= 30:
         score += 10
         reasons.append("ADX strong")
@@ -159,11 +195,17 @@ def score_option_setup(
         score += 3
         reasons.append("ADX rising")
 
-    if plus_di > minus_di:
+    if bullish and plus_di > minus_di:
         score += 2
         reasons.append("+DI above -DI")
 
-    # Participation: 10 points
+    if bearish and minus_di > plus_di:
+        score += 2
+        reasons.append("-DI above +DI")
+
+    # --------------------------------------------------------
+    # Volume
+    # --------------------------------------------------------
     if volume_ratio >= 2:
         score += 10
         reasons.append("Major volume expansion")
@@ -174,12 +216,18 @@ def score_option_setup(
         score += 4
         reasons.append("Volume above average")
 
-    # Breakout: 8 points
+    # --------------------------------------------------------
+    # Breakout / breakdown
+    # --------------------------------------------------------
     if breakout_20d:
         score += 8
-        reasons.append("20-day breakout")
+        reasons.append(
+            "20-day breakout" if bullish else "20-day breakdown"
+        )
 
-    # Volatility suitability: 7 points
+    # --------------------------------------------------------
+    # ATR suitability
+    # --------------------------------------------------------
     if 1.5 <= atr_percent <= 4:
         score += 5
         reasons.append("ATR suitable for option buying")
@@ -190,30 +238,54 @@ def score_option_setup(
         score -= 3
         reasons.append("ATR very high")
 
-    # Entry quality around Supertrend: 5 points
-    if st_direction == "BUY":
+    # --------------------------------------------------------
+    # Supertrend distance
+    # --------------------------------------------------------
+    if bullish:
         if 0 <= st_gap_percent <= 3:
             score += 5
-            reasons.append("Price close to Supertrend support")
+            reasons.append("Near Supertrend support")
         elif st_gap_percent > 8:
             score -= 4
-            reasons.append("Price extended from Supertrend")
+            reasons.append("Extended above Supertrend")
 
-    # Market context: +/- 10 points
-    if market_bias == "BULLISH":
-        score += 8
-        reasons.append("Market Pulse bullish")
-    elif market_bias == "BEARISH":
-        score -= 10
-        reasons.append("Market Pulse bearish")
-    else:
-        reasons.append("Market Pulse neutral")
+    elif bearish:
+        gap = abs(st_gap_percent)
+
+        if 0 <= gap <= 3:
+            score += 5
+            reasons.append("Near Supertrend resistance")
+        elif gap > 8:
+            score -= 4
+            reasons.append("Extended below Supertrend")
+
+    # --------------------------------------------------------
+    # Market Pulse
+    # --------------------------------------------------------
+    if bullish:
+        if bias == "BULLISH":
+            score += 8
+            reasons.append("Market Pulse supports CALL")
+        elif bias == "BEARISH":
+            score -= 10
+            reasons.append("Market Pulse against CALL")
+        else:
+            reasons.append("Market Pulse neutral")
+
+    elif bearish:
+        if bias == "BEARISH":
+            score += 8
+            reasons.append("Market Pulse supports PUT")
+        elif bias == "BULLISH":
+            score -= 10
+            reasons.append("Market Pulse against PUT")
+        else:
+            reasons.append("Market Pulse neutral")
 
     score = _clamp(score)
 
-    # Confidence is intentionally lower than score to avoid easy 100%.
     confidence = _clamp(
-        score * 0.82
+        score * 0.80
         + min(adx, 40) * 0.20
         + min(volume_ratio, 2.0) * 3
     )
@@ -222,7 +294,7 @@ def score_option_setup(
         score=score,
         confidence=confidence,
         grade=_grade(score),
-        action=_option_action(score, st_direction),
+        action=_recommendation(score, direction),
         reasons=reasons[:8],
     )
 
@@ -238,7 +310,6 @@ def score_investment_setup(
 ) -> ScoreResult:
     """
     Technical-only long-term score.
-    Fundamental factors can be added later.
     """
 
     score = 0
@@ -278,12 +349,21 @@ def score_investment_setup(
         reasons.append("Trend has strength")
 
     score = _clamp(score)
-    confidence = _clamp(score * 0.9)
+    confidence = _clamp(score * 0.90)
+
+    if score >= 82:
+        action = "STRONG"
+    elif score >= 68:
+        action = "ACCUMULATE"
+    elif score >= 52:
+        action = "WATCH"
+    else:
+        action = "WEAK"
 
     return ScoreResult(
         score=score,
         confidence=confidence,
         grade=_grade(score),
-        action=_investment_action(score),
+        action=action,
         reasons=reasons[:8],
     )
