@@ -2,24 +2,13 @@
 """
 AQSD Professional
 Master Controller
-Version: 2.0
+Version: 4.0
 
-Modes
------
-daily:
-    Update NSE list, scan stocks, create Market Pulse,
-    format dashboard, add risk plan, and refresh analytics.
-
-portfolio:
-    Update portfolio CMP/MTM, trailing stop, trade journal,
-    and performance analytics.
-
-all:
-    Run the daily workflow followed by the portfolio workflow.
-
-setup-portfolio:
-    Create/reset the Portfolio sheet using the current top trade.
-    WARNING: this replaces the existing Portfolio sheet.
+Adds:
+- Smart Alerts
+- Daily Trading Report
+- Strategy Scorecard
+- Full one-click daily + portfolio workflow
 """
 
 from __future__ import annotations
@@ -32,10 +21,6 @@ import time
 from pathlib import Path
 
 
-# ============================================================
-# PATHS
-# ============================================================
-
 SCRIPTS_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPTS_DIR.parent
 OUTPUT_FILE = BASE_DIR / "Output" / "Dashboard.xlsx"
@@ -46,38 +31,43 @@ SCRIPTS = {
     "market_pulse": SCRIPTS_DIR / "market_pulse.py",
     "format_dashboard": SCRIPTS_DIR / "format_dashboard.py",
     "risk_dashboard": SCRIPTS_DIR / "risk_dashboard.py",
+    "live_watchlist": SCRIPTS_DIR / "live_watchlist.py",
+    "smart_alerts": SCRIPTS_DIR / "smart_alerts.py",
+    "daily_report": SCRIPTS_DIR / "daily_trading_report.py",
+    "strategy_scorecard": SCRIPTS_DIR / "strategy_scorecard.py",
     "portfolio_manager": SCRIPTS_DIR / "portfolio_manager.py",
     "portfolio_live": SCRIPTS_DIR / "portfolio_live_assistant.py",
     "trade_journal": SCRIPTS_DIR / "trade_journal.py",
     "analytics": SCRIPTS_DIR / "performance_analytics.py",
+    "performance_dashboard": SCRIPTS_DIR / "performance_dashboard.py",
+    "portfolio_heatmap": SCRIPTS_DIR / "portfolio_heatmap.py",
+    "equity_curve": SCRIPTS_DIR / "equity_curve.py",
+    "drawdown": SCRIPTS_DIR / "drawdown_analyzer.py",
+    "sector_exposure": SCRIPTS_DIR / "sector_exposure.py",
+    "portfolio_allocation": SCRIPTS_DIR / "portfolio_allocation.py",
+    "backup": SCRIPTS_DIR / "auto_backup.py",
 }
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
-def run_script(label: str, script_path: Path, required: bool = True) -> bool:
-    """
-    Run one AQSD module.
-
-    Returns True when successful.
-    If required=False, a missing script is skipped.
-    """
-
+def run_script(
+    label: str,
+    script_path: Path,
+    *,
+    required: bool = True,
+) -> bool:
     if not script_path.exists():
         if required:
             raise FileNotFoundError(
-                f"{label} script was not found:\n{script_path}"
+                f"{label} script not found:\n{script_path}"
             )
 
         print(f"\nSKIPPED: {label}")
-        print(f"Missing optional script: {script_path.name}")
+        print(f"Missing optional file: {script_path.name}")
         return False
 
-    print("\n" + "=" * 64)
+    print("\n" + "=" * 70)
     print(label)
-    print("=" * 64)
+    print("=" * 70)
 
     completed = subprocess.run(
         [sys.executable, str(script_path)],
@@ -93,18 +83,6 @@ def run_script(label: str, script_path: Path, required: bool = True) -> bool:
     return True
 
 
-def open_dashboard() -> None:
-    if not OUTPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Dashboard was not created:\n{OUTPUT_FILE}"
-        )
-
-    if os.name == "nt":
-        os.startfile(OUTPUT_FILE)  # type: ignore[attr-defined]
-    else:
-        print(f"\nOpen manually:\n{OUTPUT_FILE}")
-
-
 def dashboard_has_sheet(sheet_name: str) -> bool:
     if not OUTPUT_FILE.exists():
         return False
@@ -117,7 +95,6 @@ def dashboard_has_sheet(sheet_name: str) -> bool:
             read_only=True,
             data_only=False,
         )
-
         exists = sheet_name in wb.sheetnames
         wb.close()
         return exists
@@ -126,52 +103,81 @@ def dashboard_has_sheet(sheet_name: str) -> bool:
         return False
 
 
-# ============================================================
-# WORKFLOWS
-# ============================================================
+def open_dashboard() -> None:
+    if not OUTPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"Dashboard not found:\n{OUTPUT_FILE}"
+        )
+
+    if os.name == "nt":
+        os.startfile(OUTPUT_FILE)  # type: ignore[attr-defined]
+    else:
+        print(f"\nOpen manually:\n{OUTPUT_FILE}")
+
+
+def run_backup() -> None:
+    run_script(
+        "CREATE VERIFIED DASHBOARD BACKUP",
+        SCRIPTS["backup"],
+        required=False,
+    )
+
 
 def run_daily(skip_update: bool) -> None:
-    step = 1
-
     if skip_update:
-        print("\nSTEP 1 - NSE F&O update skipped.")
+        print("\nNSE F&O update skipped.")
     else:
         run_script(
-            f"STEP {step} - UPDATE NSE F&O UNIVERSE",
+            "UPDATE NSE F&O UNIVERSE",
             SCRIPTS["update"],
         )
-    step += 1
 
     run_script(
-        f"STEP {step} - SCAN NSE F&O STOCKS",
+        "SCAN NSE F&O STOCKS",
         SCRIPTS["scanner"],
     )
-    step += 1
 
     run_script(
-        f"STEP {step} - CREATE MARKET PULSE",
+        "CREATE MARKET PULSE",
         SCRIPTS["market_pulse"],
     )
-    step += 1
 
     run_script(
-        f"STEP {step} - FORMAT PROFESSIONAL DASHBOARD",
+        "FORMAT PROFESSIONAL DASHBOARD",
         SCRIPTS["format_dashboard"],
     )
-    step += 1
 
     run_script(
-        f"STEP {step} - ADD RISK & POSITION PLAN",
+        "ADD RISK & POSITION PLAN",
         SCRIPTS["risk_dashboard"],
         required=False,
     )
-    step += 1
 
     run_script(
-        f"STEP {step} - REFRESH PERFORMANCE ANALYTICS",
-        SCRIPTS["analytics"],
+        "CREATE LIVE WATCHLIST",
+        SCRIPTS["live_watchlist"],
         required=False,
     )
+
+    run_script(
+        "CREATE STRATEGY SCORECARD",
+        SCRIPTS["strategy_scorecard"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE SMART ALERTS",
+        SCRIPTS["smart_alerts"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE DAILY TRADING REPORT",
+        SCRIPTS["daily_report"],
+        required=False,
+    )
+
+    run_backup()
 
 
 def run_portfolio() -> None:
@@ -188,7 +194,7 @@ def run_portfolio() -> None:
         )
 
     run_script(
-        "UPDATE LIVE PORTFOLIO, MTM & TRAILING STOP",
+        "UPDATE PORTFOLIO, MTM & TRAILING STOP",
         SCRIPTS["portfolio_live"],
     )
 
@@ -198,17 +204,67 @@ def run_portfolio() -> None:
     )
 
     run_script(
-        "REFRESH PERFORMANCE ANALYTICS",
-        SCRIPTS["analytics"],
+        "CREATE PORTFOLIO HEAT MAP",
+        SCRIPTS["portfolio_heatmap"],
+        required=False,
     )
+
+    run_script(
+        "CREATE PERFORMANCE ANALYTICS",
+        SCRIPTS["analytics"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE PERFORMANCE DASHBOARD",
+        SCRIPTS["performance_dashboard"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE EQUITY CURVE",
+        SCRIPTS["equity_curve"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE DRAWDOWN ANALYSIS",
+        SCRIPTS["drawdown"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE SECTOR EXPOSURE",
+        SCRIPTS["sector_exposure"],
+        required=False,
+    )
+
+    run_script(
+        "CREATE PORTFOLIO ALLOCATION",
+        SCRIPTS["portfolio_allocation"],
+        required=False,
+    )
+
+    run_script(
+        "REFRESH SMART ALERTS",
+        SCRIPTS["smart_alerts"],
+        required=False,
+    )
+
+    run_script(
+        "REFRESH DAILY TRADING REPORT",
+        SCRIPTS["daily_report"],
+        required=False,
+    )
+
+    run_backup()
 
 
 def setup_portfolio() -> None:
-    print("\nWARNING")
-    print("This will replace the existing Portfolio sheet.")
+    print("\nWARNING: Existing Portfolio sheet will be replaced.")
 
     run_script(
-        "CREATE / RESET PORTFOLIO SHEET",
+        "CREATE / RESET PORTFOLIO",
         SCRIPTS["portfolio_manager"],
     )
 
@@ -224,10 +280,20 @@ def setup_portfolio() -> None:
         required=False,
     )
 
+    run_script(
+        "CREATE SMART ALERTS",
+        SCRIPTS["smart_alerts"],
+        required=False,
+    )
 
-# ============================================================
-# ARGUMENTS
-# ============================================================
+    run_script(
+        "CREATE DAILY TRADING REPORT",
+        SCRIPTS["daily_report"],
+        required=False,
+    )
+
+    run_backup()
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -243,18 +309,12 @@ def parse_arguments() -> argparse.Namespace:
             "setup-portfolio",
         ],
         default="daily",
-        help=(
-            "daily = scanner/dashboard; "
-            "portfolio = MTM/journal; "
-            "all = both; "
-            "setup-portfolio = create/reset Portfolio sheet."
-        ),
     )
 
     parser.add_argument(
         "--skip-update",
         action="store_true",
-        help="Use the existing NSE F&O stock list.",
+        help="Use the existing NSE F&O list.",
     )
 
     parser.add_argument(
@@ -266,18 +326,14 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main() -> None:
     args = parse_arguments()
     started = time.perf_counter()
 
-    print("\n" + "=" * 64)
-    print("AQSD PROFESSIONAL v2.0")
-    print("NSE F&O TRADING, RISK & PORTFOLIO WORKSTATION")
-    print("=" * 64)
+    print("\n" + "=" * 70)
+    print("AQSD PROFESSIONAL v4.0")
+    print("NSE F&O TRADING, ALERTS, PORTFOLIO & ANALYTICS WORKSTATION")
+    print("=" * 70)
     print(f"Mode: {args.mode}")
 
     try:
@@ -293,7 +349,7 @@ def main() -> None:
             if dashboard_has_sheet("Portfolio"):
                 run_portfolio()
             else:
-                print("\nPortfolio workflow skipped: Portfolio sheet not found.")
+                print("\nPortfolio workflow skipped.")
                 print("Create it with:")
                 print("python AQSD.py --mode setup-portfolio")
 
@@ -301,9 +357,9 @@ def main() -> None:
             setup_portfolio()
 
     except (FileNotFoundError, RuntimeError, PermissionError) as error:
-        print("\n" + "=" * 64)
+        print("\n" + "=" * 70)
         print("AQSD STOPPED")
-        print("=" * 64)
+        print("=" * 70)
         print(error)
 
         if isinstance(error, PermissionError):
@@ -313,12 +369,12 @@ def main() -> None:
 
     elapsed = time.perf_counter() - started
 
-    print("\n" + "=" * 64)
+    print("\n" + "=" * 70)
     print("AQSD COMPLETED SUCCESSFULLY")
     print(f"Mode: {args.mode}")
     print(f"Time taken: {elapsed:.1f} seconds")
     print(f"Dashboard: {OUTPUT_FILE}")
-    print("=" * 64)
+    print("=" * 70)
 
     if not args.no_open and OUTPUT_FILE.exists():
         try:

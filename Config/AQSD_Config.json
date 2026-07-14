@@ -1,0 +1,50 @@
+{
+    "project": {
+        "name": "AQSD Professional",
+        "version": "4.1"
+    },
+    "trading": {
+        "capital": 300000,
+        "risk_percent": 1.5,
+        "maximum_open_positions": 5,
+        "maximum_position_percent": 25.0,
+        "maximum_portfolio_risk_percent": 5.0
+    },
+    "scanner": {
+        "minimum_call_score": 72,
+        "minimum_put_score": 72,
+        "minimum_confidence": 65,
+        "top_call_candidates": 10,
+        "top_put_candidates": 10
+    },
+    "indicators": {
+        "ema_fast": 20,
+        "ema_medium": 50,
+        "ema_slow": 200,
+        "rsi_period": 14,
+        "adx_period": 14,
+        "atr_period": 14,
+        "supertrend_period": 10,
+        "supertrend_multiplier": 3.0,
+        "volume_multiplier": 1.5
+    },
+    "risk_management": {
+        "trailing_stop_enabled": true,
+        "trailing_trigger_percent": 2.0,
+        "trailing_distance_percent": 1.5,
+        "target_1_rr": 2.0,
+        "target_2_rr": 3.0
+    },
+    "portfolio": {
+        "default_quantity": 100,
+        "auto_add_best_trade": true
+    },
+    "backup": {
+        "enabled": true,
+        "keep_latest": 30
+    },
+    "workflow": {
+        "open_dashboard_after_run": true,
+        "update_fno_daily": true
+    }
+}
