@@ -317,7 +317,7 @@ symbols = symbols[symbols.ne("")]
 option_results = []
 investment_results = []
 
-print("Starting AQSD Scoring Engine v2.0...\n")
+print("Starting AQSD Recommendation Engine v1.0...\n")
 print(f"Stocks to scan: {len(symbols)}\n")
 
 
@@ -529,10 +529,17 @@ for number, symbol in enumerate(symbols, start=1):
                 "Target 2": round(target_2, 2) if pd.notna(target_2) else "",
                 "R:R T1": rr_1,
                 "R:R T2": rr_2,
-                "Option Score": option_result.score,
-                "Confidence": option_result.confidence,
-                "Grade": option_result.grade,
-                "Action": option_result.action,
+                "Trade Score": option_result.score,
+                "Trade Confidence": option_result.confidence,
+                "Trade Grade": option_result.grade,
+                "Recommendation": option_result.action,
+                "Stars": (
+                    "★★★★★" if option_result.score >= 90 else
+                    "★★★★☆" if option_result.score >= 80 else
+                    "★★★☆☆" if option_result.score >= 70 else
+                    "★★☆☆☆" if option_result.score >= 60 else
+                    "★☆☆☆☆"
+                ),
                 "Reasons": " | ".join(option_result.reasons),
                 "Market Bias": MARKET_BIAS,
             }
@@ -575,7 +582,7 @@ if option_df.empty:
     raise SystemExit(1)
 
 option_df = option_df.sort_values(
-    by=["Option Score", "ST Gap %"],
+    by=["Trade Score", "ST Gap %"],
     ascending=[False, True],
 ).reset_index(drop=True)
 
@@ -596,11 +603,11 @@ summary_df = pd.DataFrame(
         ],
         "Value": [
             len(option_df),
-            int((option_df["Action"] == "STRONG BUY").sum()),
-            int((option_df["Action"] == "BUY").sum()),
-            int((option_df["Action"] == "WATCH").sum()),
-            int((option_df["Action"] == "WAIT").sum()),
-            int((option_df["Action"] == "AVOID").sum()),
+            int((option_df["Recommendation"] == "STRONG BUY").sum()),
+            int((option_df["Recommendation"] == "BUY").sum()),
+            int((option_df["Recommendation"] == "WATCH").sum()),
+            int((option_df["Recommendation"] == "WAIT").sum()),
+            int((option_df["Recommendation"] == "AVOID").sum()),
             int((option_df["Fresh ST Buy"] == "YES").sum()),
             int((option_df["20D Breakout"] == "YES").sum()),
             int((option_df["Volume Breakout"] == "YES").sum()),
@@ -629,13 +636,13 @@ except PermissionError:
     print("\nClose Dashboard.xlsx and run again.")
     raise SystemExit(1)
 
-print("\nAQSD Scoring Engine v2.0 completed successfully.\n")
+print("\nAQSD Recommendation Engine v1.0 completed successfully.\n")
 
 print(
     option_df[
         [
             "Rank", "Symbol", "ST Signal", "RSI14", "ADX14",
-            "Volume Ratio", "20D Breakout", "Option Score", "Confidence", "Grade", "Action",
+            "Volume Ratio", "20D Breakout", "Trade Score", "Trade Confidence", "Trade Grade", "Stars", "Recommendation",
         ]
     ].to_string(index=False)
 )
