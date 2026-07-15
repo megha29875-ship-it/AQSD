@@ -1,0 +1,7 @@
+1. Code AQSD
+2. Test AQSD
+3. Double-click AQSD_GIT.bat
+4. Enter a commit message
+5. Wait for GitHub upload
+6. Double-click AQSD_BACKUP.bat
+7. Done
