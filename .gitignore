@@ -1,28 +1,80 @@
+# ===========================
 # Python
+# ===========================
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 
-# Excel Output
-Output/
+# Virtual environments
+.venv/
+venv/
+env/
 
-# Logs
-Logs/
+# IDEs
+.vscode/
+.idea/
 
-# Temporary files
-*.tmp
-*.log
-
-# Excel backups
-Data/*backup*.xlsx
-
-# Windows
+# OS files
 Thumbs.db
 Desktop.ini
 
-# VS Code
-.vscode/
+# Logs
+*.log
 
-# Python virtual env
-venv/
+# Temporary files
+*.tmp
+*.temp
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# ===========================
+# AQSD Generated Output
+# ===========================
+Output/
+
+# Backup folders
+Z-Back Ups/
+Backups/
+
+# SQLite temporary files
+*.db-journal
+*.sqlite-journal
+*.wal
+*.shm
+
+# Excel temporary files
+~$*.xlsx
+
+# ===========================
+# OPTIONAL
+# Uncomment ONLY if you NEVER
+# want to version-control the
+# live database.
+# ===========================
+# Data/aqsd_core.db
+
+# ===========================
+# OPTIONAL
+# Uncomment ONLY if Dashboard
+# is always generated.
+# ===========================
+# Output/Dashboard.xlsx
+
+# Backup Excel files
+Data/*backup*.xlsx
+
+# Runtime logs
+Logs/
+*.jsonl
+
+# Generated dashboard
+Output/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temporary Excel files
+~$*.xlsxss
