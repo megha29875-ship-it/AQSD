@@ -1,1000 +1,1116 @@
-
 """
 AQSD Professional
-Module: Trade Decision & Watchlist Engine
+Module: Institutional Decision Engine
 Version: 1.0
 
 Purpose
 -------
-Converts Unified Master Intelligence into an actionable daily watchlist.
+Combines existing AQSD futures, options and smart-money outputs into one
+explainable institutional decision for a selected underlying.
 
 Inputs
 ------
-- unified_master_intelligence
-- price_structure_intelligence
-- daily_prices
-- sector_rotation_intelligence
+Output/AQSD_FYERS_Futures_OI_Analytics.csv
+Output/AQSD_Options_Intelligence.csv
+Output/AQSD_FYERS_Smart_Money_Summary.csv
+Output/AQSD_BANKNIFTY_Institutional_Levels.csv   (optional)
 
 Outputs
 -------
-- Action: BUY / BUY ON DIP / WATCH / AVOID / EXIT
-- Entry zone
-- Stop loss
-- Target 1 / Target 2
-- Reward-to-risk ratio
-- Position-quality score
-- Priority rank
-- Explainable trade rationale
-- SQLite history
-- Excel sheet: AQSD Decision Engine
+Output/AQSD_Decision_Engine.csv
+Output/AQSD_Decision_Engine.json
+Output/AQSD_Decision_Engine_History.csv
 
-Commands
+Safety
+------
+- Decision-support only
+- No order placement
+- No database writes
+
+Examples
 --------
-python aqsd_decision_engine.py --run
 python aqsd_decision_engine.py --status
-python aqsd_decision_engine.py --report
-python aqsd_decision_engine.py --symbol RELIANCE
+python aqsd_decision_engine.py --run --underlying BANKNIFTY
+python aqsd_decision_engine.py --run --underlying NIFTY
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from aqsd_database import connect, setup_database, start_run, finish_run
-
-
-# ============================================================
-# PATHS
-# ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DASHBOARD = BASE_DIR / "Output" / "Dashboard.xlsx"
+OUTPUT_DIR = BASE_DIR / "Output"
 
+FUTURES_FILE = OUTPUT_DIR / "AQSD_FYERS_Futures_OI_Analytics.csv"
+OPTIONS_FILE = OUTPUT_DIR / "AQSD_Options_Intelligence.csv"
+SMART_FILE = OUTPUT_DIR / "AQSD_FYERS_Smart_Money_Summary.csv"
+BANKNIFTY_FILE = OUTPUT_DIR / "AQSD_BANKNIFTY_Institutional_Levels.csv"
 
-# ============================================================
-# SETTINGS
-# ============================================================
+SUMMARY_OUTPUT = OUTPUT_DIR / "AQSD_Decision_Engine.csv"
+JSON_OUTPUT = OUTPUT_DIR / "AQSD_Decision_Engine.json"
+HISTORY_OUTPUT = OUTPUT_DIR / "AQSD_Decision_Engine_History.csv"
 
-MINIMUM_COMPLETENESS = 45.0
-MINIMUM_CONFIDENCE = 40.0
-ATR_STOP_MULTIPLIER = 1.5
-TARGET_ONE_R_MULTIPLE = 1.5
-TARGET_TWO_R_MULTIPLE = 2.5
-
-
-# ============================================================
-# COLORS
-# ============================================================
-
-NAVY = "17365D"
-BLUE = "D9EAF7"
-GREEN = "C6EFCE"
-RED = "FFC7CE"
-YELLOW = "FFF2CC"
-GREY = "E7E6E6"
-WHITE = "FFFFFF"
-THIN = Side(style="thin", color="D9D9D9")
-
-
-# ============================================================
-# DATABASE SCHEMA
-# ============================================================
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS aqsd_trade_decisions (
-    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trade_date TEXT NOT NULL,
-    symbol_id INTEGER NOT NULL,
-    nse_symbol TEXT NOT NULL,
-    sector TEXT,
-    master_score REAL,
-    confidence_percent REAL,
-    completeness_percent REAL,
-    risk_level TEXT,
-    directional_bias TEXT,
-    action TEXT,
-    entry_quality TEXT,
-    last_price REAL,
-    entry_low REAL,
-    entry_high REAL,
-    stop_loss REAL,
-    target_1 REAL,
-    target_2 REAL,
-    reward_risk_1 REAL,
-    reward_risk_2 REAL,
-    priority_score REAL,
-    priority_rank INTEGER,
-    rationale TEXT,
-    created_at TEXT NOT NULL,
-    UNIQUE(trade_date, symbol_id),
-    FOREIGN KEY(symbol_id)
-        REFERENCES symbols(symbol_id)
-        ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_trade_decisions_date
-ON aqsd_trade_decisions(trade_date);
-
-CREATE INDEX IF NOT EXISTS idx_trade_decisions_rank
-ON aqsd_trade_decisions(trade_date, priority_rank);
-"""
-
-
-def setup_schema() -> None:
-    setup_database()
-
-    with connect() as connection:
-        connection.executescript(SCHEMA)
-        connection.commit()
-
-
-# ============================================================
-# HELPERS
-# ============================================================
 
 def safe_float(value: Any) -> float | None:
     try:
         if value is None or value == "":
             return None
 
-        return float(value)
+        number = float(value)
 
+        if math.isnan(number):
+            return None
+
+        return number
     except (TypeError, ValueError):
         return None
 
 
-def clamp(value: float, minimum: float, maximum: float) -> float:
-    return max(minimum, min(maximum, value))
+def read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.DataFrame()
 
 
-def round_price(value: float | None) -> float | None:
-    return round(value, 2) if value is not None else None
+def select_row(
+    frame: pd.DataFrame,
+    underlying: str,
+) -> pd.Series | None:
+    if frame.empty or "underlying" not in frame.columns:
+        return None
+
+    target = underlying.strip().upper()
+
+    rows = frame[
+        frame["underlying"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .eq(target)
+    ]
+
+    if rows.empty:
+        return None
+
+    return rows.iloc[-1]
 
 
-# ============================================================
-# LOADERS
-# ============================================================
+def first_present(
+    row: pd.Series | None,
+    names: list[str],
+    default: Any = None,
+) -> Any:
+    if row is None:
+        return default
 
-def latest_master() -> pd.DataFrame:
-    with connect() as connection:
-        return pd.read_sql_query(
-            """
-            SELECT *
-            FROM unified_master_intelligence
-            WHERE trade_date = (
-                SELECT MAX(trade_date)
-                FROM unified_master_intelligence
-            )
-            ORDER BY master_score DESC
-            """,
-            connection,
-        )
+    for name in names:
+        if name in row.index:
+            value = row.get(name)
+
+            if pd.notna(value):
+                return value
+
+    return default
 
 
-def latest_structure() -> pd.DataFrame:
-    with connect() as connection:
-        return pd.read_sql_query(
-            """
-            SELECT
-                symbol_id,
-                trade_date,
-                close_price,
-                atr_14,
-                support_level,
-                resistance_level,
-                weekly_pivot,
-                monthly_pivot,
-                cpr_low,
-                cpr_high,
-                bos_signal,
-                choch_signal,
-                market_structure,
-                trend_strength,
-                structure_score
-            FROM price_structure_intelligence
-            WHERE trade_date = (
-                SELECT MAX(trade_date)
-                FROM price_structure_intelligence
-            )
-            """,
-            connection,
-        )
-
-
-def latest_sector_rotation() -> pd.DataFrame:
-    with connect() as connection:
-        return pd.read_sql_query(
-            """
-            SELECT
-                sector,
-                sector_rotation_score,
-                rotation_state,
-                trend_state
-            FROM sector_rotation_intelligence
-            WHERE trade_date = (
-                SELECT MAX(trade_date)
-                FROM sector_rotation_intelligence
-            )
-            """,
-            connection,
-        )
-
-
-# ============================================================
-# DECISION LOGIC
-# ============================================================
-
-def determine_action(
-    master_score: float,
-    confidence: float,
-    completeness: float,
-    bias: str,
-    risk: str,
-) -> str:
-    if completeness < MINIMUM_COMPLETENESS:
-        return "INSUFFICIENT DATA"
-
-    if confidence < MINIMUM_CONFIDENCE:
-        return "WATCH"
-
-    if master_score >= 85 and "BULLISH" in bias and risk != "HIGH":
-        return "STRONG BUY"
-
-    if master_score >= 72 and "BULLISH" in bias:
-        return "BUY"
-
-    if master_score >= 60 and "BULLISH" in bias:
-        return "BUY ON DIP"
-
-    if master_score <= 25 and "BEARISH" in bias:
-        return "EXIT / AVOID"
-
-    if master_score <= 40 and "BEARISH" in bias:
-        return "AVOID"
-
-    return "WATCH"
-
-
-def build_trade_levels(
-    last_price: float,
-    atr: float | None,
-    support: float | None,
-    resistance: float | None,
-    cpr_low: float | None,
-    cpr_high: float | None,
-    action: str,
-) -> dict:
-    atr = atr if atr and atr > 0 else last_price * 0.02
-
-    if action in {"STRONG BUY", "BUY"}:
-        entry_low = max(
-            support or (last_price - atr * 0.5),
-            cpr_low or (last_price - atr * 0.5),
-        )
-        entry_high = last_price
-        stop_loss = min(
-            support or (last_price - atr),
-            last_price - ATR_STOP_MULTIPLIER * atr,
-        )
-
-    elif action == "BUY ON DIP":
-        entry_low = max(
-            support or (last_price - atr),
-            cpr_low or (last_price - atr),
-        )
-        entry_high = min(
-            last_price,
-            cpr_high or last_price,
-        )
-        stop_loss = min(
-            support or (last_price - atr),
-            entry_low - ATR_STOP_MULTIPLIER * atr,
-        )
-
-    else:
-        return {
-            "entry_low": None,
-            "entry_high": None,
-            "stop_loss": None,
-            "target_1": None,
-            "target_2": None,
-            "reward_risk_1": None,
-            "reward_risk_2": None,
-        }
-
-    entry_mid = (entry_low + entry_high) / 2
-    risk_per_share = max(0.01, entry_mid - stop_loss)
-
-    target_1 = entry_mid + risk_per_share * TARGET_ONE_R_MULTIPLE
-    target_2 = entry_mid + risk_per_share * TARGET_TWO_R_MULTIPLE
-
-    if resistance and resistance > entry_mid:
-        target_1 = max(target_1, resistance)
-
-    rr1 = (target_1 - entry_mid) / risk_per_share
-    rr2 = (target_2 - entry_mid) / risk_per_share
-
-    return {
-        "entry_low": round_price(entry_low),
-        "entry_high": round_price(entry_high),
-        "stop_loss": round_price(stop_loss),
-        "target_1": round_price(target_1),
-        "target_2": round_price(target_2),
-        "reward_risk_1": round(rr1, 2),
-        "reward_risk_2": round(rr2, 2),
-    }
-
-
-def priority_score(
-    master_score: float,
-    confidence: float,
-    completeness: float,
-    sector_score: float | None,
-    rr1: float | None,
-    risk_level: str,
+def clamp(
+    value: float,
+    minimum: float = 0.0,
+    maximum: float = 100.0,
 ) -> float:
-    score = (
-        master_score * 0.45
-        + confidence * 0.25
-        + completeness * 0.10
-        + (sector_score if sector_score is not None else 50) * 0.10
-        + min((rr1 or 0) * 20, 100) * 0.10
-    )
-
-    if risk_level == "HIGH":
-        score -= 10
-    elif risk_level == "LOW":
-        score += 5
-
-    return round(clamp(score, 0, 100), 2)
-
-
-def build_decisions() -> list[dict]:
-    master = latest_master()
-    structure = latest_structure()
-    sectors = latest_sector_rotation()
-
-    if master.empty:
-        raise RuntimeError(
-            "No Unified Master Intelligence found. "
-            "Run aqsd_unified_master_intelligence.py --run first."
-        )
-
-    merged = master.merge(
-        structure,
-        on="symbol_id",
-        how="left",
-        suffixes=("", "_structure"),
-    )
-
-    if not sectors.empty:
-        sectors = sectors.copy()
-        sectors["sector_key"] = sectors["sector"].astype(str).str.upper()
-
-    decisions = []
-
-    for _, row in merged.iterrows():
-        master_score = float(row["master_score"])
-        confidence = float(row["confidence_percent"])
-        completeness = float(row["data_completeness_percent"])
-        bias = str(row["directional_bias"] or "")
-        risk = str(row["risk_level"] or "HIGH")
-        action = determine_action(
-            master_score,
-            confidence,
-            completeness,
-            bias,
-            risk,
-        )
-
-        last_price = safe_float(row.get("close_price"))
-        atr = safe_float(row.get("atr_14"))
-        support = safe_float(row.get("support_level"))
-        resistance = safe_float(row.get("resistance_level"))
-        cpr_low = safe_float(row.get("cpr_low"))
-        cpr_high = safe_float(row.get("cpr_high"))
-
-        levels = (
-            build_trade_levels(
-                last_price,
-                atr,
-                support,
-                resistance,
-                cpr_low,
-                cpr_high,
-                action,
-            )
-            if last_price is not None
-            else {
-                "entry_low": None,
-                "entry_high": None,
-                "stop_loss": None,
-                "target_1": None,
-                "target_2": None,
-                "reward_risk_1": None,
-                "reward_risk_2": None,
-            }
-        )
-
-        sector = str(row["sector"] or "Unmapped")
-        sector_score = safe_float(row.get("sector_rotation_score"))
-        rotation_state = ""
-        sector_trend = ""
-
-        if not sectors.empty:
-            selected = sectors[
-                sectors["sector_key"] == sector.upper()
-            ]
-
-            if not selected.empty:
-                sector_score = safe_float(
-                    selected["sector_rotation_score"].iloc[0]
-                )
-                rotation_state = str(
-                    selected["rotation_state"].iloc[0] or ""
-                )
-                sector_trend = str(
-                    selected["trend_state"].iloc[0] or ""
-                )
-
-        priority = priority_score(
-            master_score,
-            confidence,
-            completeness,
-            sector_score,
-            levels["reward_risk_1"],
-            risk,
-        )
-
-        rationale_parts = [
-            f"Master {master_score:.1f}",
-            f"Confidence {confidence:.1f}%",
-            f"Completeness {completeness:.1f}%",
-            f"Bias {bias}",
-            f"Risk {risk}",
-        ]
-
-        if sector_score is not None:
-            rationale_parts.append(
-                f"Sector {sector_score:.1f}"
-            )
-
-        if rotation_state:
-            rationale_parts.append(
-                f"Rotation {rotation_state}"
-            )
-
-        if sector_trend:
-            rationale_parts.append(
-                f"Sector trend {sector_trend}"
-            )
-
-        market_structure = str(
-            row.get("market_structure") or ""
-        )
-        bos = str(row.get("bos_signal") or "")
-        choch = str(row.get("choch_signal") or "")
-        trend_strength = str(
-            row.get("trend_strength") or ""
-        )
-
-        if market_structure:
-            rationale_parts.append(market_structure)
-
-        if bos and bos != "NONE":
-            rationale_parts.append(bos)
-
-        if choch and choch != "NONE":
-            rationale_parts.append(choch)
-
-        if trend_strength:
-            rationale_parts.append(
-                f"Trend {trend_strength}"
-            )
-
-        decisions.append(
-            {
-                "trade_date": str(row["trade_date"]),
-                "symbol_id": int(row["symbol_id"]),
-                "nse_symbol": str(row["nse_symbol"]),
-                "sector": sector,
-                "master_score": master_score,
-                "confidence_percent": confidence,
-                "completeness_percent": completeness,
-                "risk_level": risk,
-                "directional_bias": bias,
-                "action": action,
-                "entry_quality": str(
-                    row["entry_quality"] or ""
-                ),
-                "last_price": round_price(last_price),
-                **levels,
-                "priority_score": priority,
-                "priority_rank": 0,
-                "rationale": " | ".join(rationale_parts),
-            }
-        )
-
-    action_priority = {
-        "STRONG BUY": 0,
-        "BUY": 1,
-        "BUY ON DIP": 2,
-        "WATCH": 3,
-        "AVOID": 4,
-        "EXIT / AVOID": 5,
-        "INSUFFICIENT DATA": 6,
-    }
-
-    decisions = sorted(
-        decisions,
-        key=lambda item: (
-            action_priority.get(item["action"], 99),
-            -item["priority_score"],
-            -item["master_score"],
+    return max(
+        minimum,
+        min(
+            maximum,
+            value,
         ),
     )
 
-    for rank, item in enumerate(decisions, start=1):
-        item["priority_rank"] = rank
 
-    return decisions
+def probability_label(value: float) -> str:
+    if value >= 80:
+        return "VERY HIGH"
 
+    if value >= 65:
+        return "HIGH"
 
-def save_decisions(decisions: list[dict]) -> None:
-    with connect() as connection:
-        for item in decisions:
-            connection.execute(
-                """
-                INSERT INTO aqsd_trade_decisions(
-                    trade_date,
-                    symbol_id,
-                    nse_symbol,
-                    sector,
-                    master_score,
-                    confidence_percent,
-                    completeness_percent,
-                    risk_level,
-                    directional_bias,
-                    action,
-                    entry_quality,
-                    last_price,
-                    entry_low,
-                    entry_high,
-                    stop_loss,
-                    target_1,
-                    target_2,
-                    reward_risk_1,
-                    reward_risk_2,
-                    priority_score,
-                    priority_rank,
-                    rationale,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(trade_date, symbol_id)
-                DO UPDATE SET
-                    sector = excluded.sector,
-                    master_score = excluded.master_score,
-                    confidence_percent = excluded.confidence_percent,
-                    completeness_percent = excluded.completeness_percent,
-                    risk_level = excluded.risk_level,
-                    directional_bias = excluded.directional_bias,
-                    action = excluded.action,
-                    entry_quality = excluded.entry_quality,
-                    last_price = excluded.last_price,
-                    entry_low = excluded.entry_low,
-                    entry_high = excluded.entry_high,
-                    stop_loss = excluded.stop_loss,
-                    target_1 = excluded.target_1,
-                    target_2 = excluded.target_2,
-                    reward_risk_1 = excluded.reward_risk_1,
-                    reward_risk_2 = excluded.reward_risk_2,
-                    priority_score = excluded.priority_score,
-                    priority_rank = excluded.priority_rank,
-                    rationale = excluded.rationale,
-                    created_at = excluded.created_at
-                """,
-                (
-                    item["trade_date"],
-                    item["symbol_id"],
-                    item["nse_symbol"],
-                    item["sector"],
-                    item["master_score"],
-                    item["confidence_percent"],
-                    item["completeness_percent"],
-                    item["risk_level"],
-                    item["directional_bias"],
-                    item["action"],
-                    item["entry_quality"],
-                    item["last_price"],
-                    item["entry_low"],
-                    item["entry_high"],
-                    item["stop_loss"],
-                    item["target_1"],
-                    item["target_2"],
-                    item["reward_risk_1"],
-                    item["reward_risk_2"],
-                    item["priority_score"],
-                    item["priority_rank"],
-                    item["rationale"],
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
+    if value >= 50:
+        return "MEDIUM"
 
-        connection.commit()
+    return "LOW"
 
 
-def run_engine() -> list[dict]:
-    setup_schema()
+def grade_from_confidence(
+    confidence: float,
+    action: str,
+) -> str:
+    if action in {"WAIT", "AVOID"}:
+        return "AVOID"
 
-    run_id = start_run(
-        "aqsd_decision_engine",
-        "Building actionable trade decisions",
+    if confidence >= 85:
+        return "A+"
+
+    if confidence >= 75:
+        return "A"
+
+    if confidence >= 65:
+        return "B"
+
+    if confidence >= 55:
+        return "C"
+
+    return "AVOID"
+
+
+def infer_market_regime(
+    bull_score: float,
+    bear_score: float,
+    continuation_probability: float | None,
+    iv_regime: str,
+) -> str:
+    spread = abs(
+        bull_score - bear_score
     )
 
-    try:
-        decisions = build_decisions()
-        save_decisions(decisions)
+    if continuation_probability is not None and continuation_probability >= 70:
+        if bull_score > bear_score:
+            return "BULLISH CONTINUATION"
 
-        finish_run(
-            run_id,
-            status="SUCCESS",
-            records_processed=len(decisions),
-            errors_count=0,
-            message=f"Decisions created={len(decisions)}",
+        if bear_score > bull_score:
+            return "BEARISH CONTINUATION"
+
+    if "EXPENSIVE" in iv_regime.upper() and spread < 15:
+        return "HIGH-VOLATILITY RANGE"
+
+    if spread < 10:
+        return "RANGE-BOUND / MIXED"
+
+    return "TRENDING"
+
+
+def score_futures(
+    row: pd.Series | None,
+) -> tuple[float, float, list[str]]:
+    bull = 50.0
+    bear = 50.0
+    reasons: list[str] = []
+
+    if row is None:
+        return bull, bear, ["Futures analytics unavailable"]
+
+    near_cycle = str(
+        first_present(
+            row,
+            ["near_cycle"],
+            "",
         )
+    ).upper()
 
-        return decisions
-
-    except Exception as error:
-        finish_run(
-            run_id,
-            status="FAILED",
-            records_processed=0,
-            errors_count=1,
-            message=str(error),
+    next_cycle = str(
+        first_present(
+            row,
+            ["next_cycle"],
+            "",
         )
-        raise
+    ).upper()
 
-
-# ============================================================
-# REPORTING
-# ============================================================
-
-def latest_decisions() -> pd.DataFrame:
-    setup_schema()
-
-    with connect() as connection:
-        return pd.read_sql_query(
-            """
-            SELECT *
-            FROM aqsd_trade_decisions
-            WHERE trade_date = (
-                SELECT MAX(trade_date)
-                FROM aqsd_trade_decisions
-            )
-            ORDER BY priority_rank
-            """,
-            connection,
+    far_cycle = str(
+        first_present(
+            row,
+            ["far_cycle"],
+            "",
         )
+    ).upper()
 
-
-def write_report(
-    decisions: list[dict] | None = None,
-) -> None:
-    if decisions is None:
-        decisions = latest_decisions().to_dict("records")
-
-    if DASHBOARD.exists():
-        wb = load_workbook(DASHBOARD)
-    else:
-        wb = Workbook()
-
-        if "Sheet" in wb.sheetnames:
-            del wb["Sheet"]
-
-    if "AQSD Decision Engine" in wb.sheetnames:
-        del wb["AQSD Decision Engine"]
-
-    ws = wb.create_sheet("AQSD Decision Engine", 1)
-    ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A8"
-
-    ws.merge_cells("A1:V2")
-    ws["A1"] = "AQSD PROFESSIONAL - TRADE DECISION & WATCHLIST ENGINE"
-    ws["A1"].font = Font(
-        size=20,
-        bold=True,
-        color=WHITE,
-    )
-    ws["A1"].fill = PatternFill(
-        "solid",
-        fgColor=NAVY,
-    )
-    ws["A1"].alignment = Alignment(
-        horizontal="center",
-        vertical="center",
-    )
-
-    actionable = sum(
-        item["action"] in {
-            "STRONG BUY",
-            "BUY",
-            "BUY ON DIP",
-        }
-        for item in decisions
-    )
-
-    ws["A4"] = "Stocks Ranked"
-    ws["B4"] = len(decisions)
-    ws["D4"] = "Actionable Longs"
-    ws["E4"] = actionable
-    ws["G4"] = "Updated"
-    ws["H4"] = datetime.now().strftime("%d-%m-%Y %H:%M")
-
-    for ref in ("A4", "D4", "G4"):
-        ws[ref].font = Font(bold=True)
-        ws[ref].fill = PatternFill("solid", fgColor=BLUE)
-
-    headers = [
-        "Priority",
-        "Symbol",
-        "Sector",
-        "Action",
-        "Master Score",
-        "Confidence %",
-        "Completeness %",
-        "Risk",
-        "Entry Quality",
-        "Last Price",
-        "Entry Low",
-        "Entry High",
-        "Stop Loss",
-        "Target 1",
-        "Target 2",
-        "R:R 1",
-        "R:R 2",
-        "Priority Score",
-        "Directional Bias",
-        "Rationale",
-    ]
-
-    for col, heading in enumerate(headers, start=1):
-        cell = ws.cell(7, col, heading)
-        cell.font = Font(
-            bold=True,
-            color=WHITE,
+    rollover = str(
+        first_present(
+            row,
+            ["rollover_signal"],
+            "",
         )
-        cell.fill = PatternFill(
-            "solid",
-            fgColor=NAVY,
+    ).upper()
+
+    migration = str(
+        first_present(
+            row,
+            ["oi_migration"],
+            "",
         )
-        cell.alignment = Alignment(
-            horizontal="center",
-            vertical="center",
-            wrap_text=True,
+    ).upper()
+
+    term_structure = str(
+        first_present(
+            row,
+            ["term_structure"],
+            "",
         )
-        cell.border = Border(bottom=THIN)
+    ).upper()
 
-    for row_no, item in enumerate(decisions, start=8):
-        values = [
-            item["priority_rank"],
-            item["nse_symbol"],
-            item["sector"],
-            item["action"],
-            item["master_score"],
-            item["confidence_percent"],
-            item["completeness_percent"],
-            item["risk_level"],
-            item["entry_quality"],
-            item["last_price"],
-            item["entry_low"],
-            item["entry_high"],
-            item["stop_loss"],
-            item["target_1"],
-            item["target_2"],
-            item["reward_risk_1"],
-            item["reward_risk_2"],
-            item["priority_score"],
-            item["directional_bias"],
-            item["rationale"],
-        ]
-
-        for col, value in enumerate(values, start=1):
-            ws.cell(row_no, col, value).border = Border(bottom=THIN)
-
-        action = item["action"]
-
-        ws.cell(row_no, 4).fill = PatternFill(
-            "solid",
-            fgColor=(
-                GREEN
-                if action in {
-                    "STRONG BUY",
-                    "BUY",
-                    "BUY ON DIP",
-                }
-                else RED
-                if action in {
-                    "AVOID",
-                    "EXIT / AVOID",
-                }
-                else YELLOW
-            ),
-        )
-        ws.cell(row_no, 4).font = Font(bold=True)
-
-        risk = item["risk_level"]
-
-        ws.cell(row_no, 8).fill = PatternFill(
-            "solid",
-            fgColor=(
-                GREEN
-                if risk == "LOW"
-                else RED
-                if risk == "HIGH"
-                else YELLOW
-            ),
-        )
-
-        score = float(item["master_score"])
-
-        ws.cell(row_no, 5).fill = PatternFill(
-            "solid",
-            fgColor=(
-                GREEN
-                if score >= 60
-                else RED
-                if score <= 40
-                else YELLOW
-            ),
-        )
-
-    widths = {
-        "A": 10,
-        "B": 16,
-        "C": 20,
-        "D": 18,
-        "E": 14,
-        "F": 14,
-        "G": 16,
-        "H": 12,
-        "I": 16,
-        "J": 12,
-        "K": 12,
-        "L": 12,
-        "M": 12,
-        "N": 12,
-        "O": 12,
-        "P": 10,
-        "Q": 10,
-        "R": 14,
-        "S": 18,
-        "T": 90,
-        "U": 14,
-        "V": 14,
+    cycle_weights = {
+        near_cycle: 12,
+        next_cycle: 8,
+        far_cycle: 5,
     }
 
-    for column, width in widths.items():
-        ws.column_dimensions[column].width = width
+    for cycle, weight in cycle_weights.items():
+        if cycle == "LONG BUILDUP":
+            bull += weight
+            bear -= weight / 2
+            reasons.append(f"{cycle.title()} in futures")
 
-    wb.save(DASHBOARD)
+        elif cycle == "SHORT COVERING":
+            bull += weight * 0.8
+            bear -= weight / 3
+            reasons.append(f"{cycle.title()} in futures")
+
+        elif cycle == "SHORT BUILDUP":
+            bear += weight
+            bull -= weight / 2
+            reasons.append(f"{cycle.title()} in futures")
+
+        elif cycle == "LONG UNWINDING":
+            bear += weight * 0.8
+            bull -= weight / 3
+            reasons.append(f"{cycle.title()} in futures")
+
+    if "BULLISH" in rollover:
+        bull += 12
+        bear -= 5
+        reasons.append("Bullish rollover")
+
+    if "BEARISH" in rollover or "BROAD SHORT BUILDUP" in rollover:
+        bear += 12
+        bull -= 5
+        reasons.append("Bearish rollover")
+
+    if "BULLISH" in migration:
+        bull += 8
+        reasons.append("Bullish OI migration")
+
+    if "BEARISH" in migration or "SHORT BUILDUP" in migration:
+        bear += 8
+        reasons.append("Bearish OI migration")
+
+    if term_structure == "BACKWARDATION":
+        bear += 4
+        reasons.append("Backwardation")
+
+    elif term_structure == "CONTANGO":
+        reasons.append("Contango")
+
+    return clamp(bull), clamp(bear), reasons
 
 
-def show_symbol(symbol: str) -> None:
-    text = symbol.strip().upper()
+def score_options(
+    row: pd.Series | None,
+) -> tuple[float, float, list[str]]:
+    bull = 50.0
+    bear = 50.0
+    reasons: list[str] = []
 
-    if text.endswith(".NS"):
-        text = text[:-3]
+    if row is None:
+        return bull, bear, ["Options intelligence unavailable"]
 
-    frame = latest_decisions()
+    modified_pcr = safe_float(
+        first_present(
+            row,
+            ["modified_pcr"],
+        )
+    )
 
-    if frame.empty:
-        print("No trade decisions found.")
-        return
+    oi_pcr = safe_float(
+        first_present(
+            row,
+            ["oi_pcr"],
+        )
+    )
 
-    selected = frame[
-        frame["nse_symbol"].str.upper() == text
-    ]
+    pcr_trend = str(
+        first_present(
+            row,
+            ["pcr_trend"],
+            "",
+        )
+    ).upper()
 
-    if selected.empty:
-        print(f"Symbol not found: {text}")
-        return
+    bull_reversal = safe_float(
+        first_present(
+            row,
+            ["bullish_reversal_probability"],
+        )
+    )
 
-    row = selected.iloc[0]
+    bear_reversal = safe_float(
+        first_present(
+            row,
+            ["bearish_reversal_probability"],
+        )
+    )
 
-    print("\nAQSD TRADE DECISION")
-    print("=" * 72)
+    if modified_pcr is not None:
+        if modified_pcr >= 1.25:
+            bull += 13
+            bear -= 5
+            reasons.append("Modified PCR strongly supportive")
 
-    for field in [
-        "priority_rank",
-        "nse_symbol",
-        "sector",
-        "action",
-        "master_score",
-        "confidence_percent",
-        "completeness_percent",
-        "risk_level",
-        "entry_quality",
-        "last_price",
-        "entry_low",
-        "entry_high",
-        "stop_loss",
-        "target_1",
-        "target_2",
-        "reward_risk_1",
-        "reward_risk_2",
-        "priority_score",
-        "directional_bias",
-        "rationale",
-    ]:
-        print(f"{field:<26}{row[field]}")
+        elif modified_pcr >= 1.05:
+            bull += 7
+            reasons.append("Modified PCR moderately supportive")
 
-    print("=" * 72)
+        elif modified_pcr <= 0.70:
+            bear += 13
+            bull -= 5
+            reasons.append("Modified PCR shows strong call dominance")
+
+        elif modified_pcr <= 0.90:
+            bear += 7
+            reasons.append("Modified PCR moderately bearish")
+
+    if oi_pcr is not None:
+        if oi_pcr >= 1.30:
+            bull += 8
+            reasons.append("OI PCR elevated")
+
+        elif oi_pcr <= 0.75:
+            bear += 8
+            reasons.append("OI PCR depressed")
+
+    if pcr_trend == "RISING":
+        bull += 8
+        bear -= 3
+        reasons.append("PCR trend rising")
+
+    elif pcr_trend == "FALLING":
+        bear += 8
+        bull -= 3
+        reasons.append("PCR trend falling")
+
+    if bull_reversal is not None and bull_reversal >= 65:
+        bull += 8
+        reasons.append("Bullish reversal probability elevated")
+
+    if bear_reversal is not None and bear_reversal >= 65:
+        bear += 8
+        reasons.append("Bearish reversal probability elevated")
+
+    return clamp(bull), clamp(bear), reasons
+
+
+def score_walls_and_price(
+    row: pd.Series | None,
+) -> tuple[float, float, list[str], dict[str, float | None]]:
+    bull = 50.0
+    bear = 50.0
+    reasons: list[str] = []
+
+    if row is None:
+        return (
+            bull,
+            bear,
+            ["Wall intelligence unavailable"],
+            {
+                "spot": None,
+                "put_wall": None,
+                "call_wall": None,
+                "max_pain": None,
+            },
+        )
+
+    spot = safe_float(
+        first_present(
+            row,
+            ["spot_price"],
+        )
+    )
+
+    put_wall = safe_float(
+        first_present(
+            row,
+            ["positional_put_wall"],
+        )
+    )
+
+    call_wall = safe_float(
+        first_present(
+            row,
+            ["positional_call_wall"],
+        )
+    )
+
+    fresh_put = safe_float(
+        first_present(
+            row,
+            ["fresh_put_wall"],
+        )
+    )
+
+    fresh_call = safe_float(
+        first_present(
+            row,
+            ["fresh_call_wall"],
+        )
+    )
+
+    max_pain = safe_float(
+        first_present(
+            row,
+            ["max_pain"],
+        )
+    )
+
+    wall_shift = str(
+        first_present(
+            row,
+            ["wall_shift_signal"],
+            "",
+        )
+    ).upper()
+
+    if spot is not None and put_wall is not None:
+        distance = abs(
+            spot - put_wall
+        )
+
+        if distance <= max(100, spot * 0.004):
+            bull += 10
+            reasons.append("Spot close to positional put wall")
+
+    if spot is not None and call_wall is not None:
+        distance = abs(
+            call_wall - spot
+        )
+
+        if distance <= max(100, spot * 0.004):
+            bear += 10
+            reasons.append("Spot close to positional call wall")
+
+    if fresh_put is not None:
+        bull += 6
+        reasons.append("Fresh put wall present")
+
+    if fresh_call is not None:
+        bear += 6
+        reasons.append("Fresh call wall present")
+
+    if "PUT WALL MOVING UP" in wall_shift:
+        bull += 8
+        reasons.append("Put wall moving upward")
+
+    if "CALL WALL MOVING DOWN" in wall_shift:
+        bear += 8
+        reasons.append("Call wall moving downward")
+
+    if spot is not None and max_pain is not None:
+        if spot > max_pain:
+            bear += 3
+            reasons.append("Spot above max pain")
+
+        elif spot < max_pain:
+            bull += 3
+            reasons.append("Spot below max pain")
+
+    return (
+        clamp(bull),
+        clamp(bear),
+        reasons,
+        {
+            "spot": spot,
+            "put_wall": put_wall,
+            "call_wall": call_wall,
+            "max_pain": max_pain,
+        },
+    )
+
+
+def score_volatility(
+    row: pd.Series | None,
+) -> tuple[float, float, float, list[str]]:
+    bull = 50.0
+    bear = 50.0
+    quality = 50.0
+    reasons: list[str] = []
+
+    if row is None:
+        return bull, bear, quality, ["IV/HV intelligence unavailable"]
+
+    iv_regime = str(
+        first_present(
+            row,
+            ["iv_regime"],
+            "NO IV DATA",
+        )
+    ).upper()
+
+    iv_hv_spread = safe_float(
+        first_present(
+            row,
+            ["iv_hv_spread"],
+        )
+    )
+
+    if "EXPENSIVE" in iv_regime:
+        quality -= 10
+        reasons.append("IV materially above HV")
+
+    elif "CHEAP" in iv_regime:
+        quality += 10
+        reasons.append("IV below HV")
+
+    elif "FAIR" in iv_regime:
+        quality += 5
+        reasons.append("IV broadly aligned with HV")
+
+    if iv_hv_spread is not None and iv_hv_spread >= 8:
+        quality -= 8
+
+    return (
+        clamp(bull),
+        clamp(bear),
+        clamp(quality),
+        reasons,
+    )
+
+
+def build_trade_levels(
+    action: str,
+    spot: float | None,
+    put_wall: float | None,
+    call_wall: float | None,
+    max_pain: float | None,
+) -> dict[str, float | None]:
+    if spot is None or action in {"WAIT", "AVOID"}:
+        return {
+            "aggressive_entry": None,
+            "conservative_entry": None,
+            "stop_loss": None,
+            "target_1": None,
+            "target_2": None,
+            "target_3": None,
+            "risk_reward": None,
+        }
+
+    fallback_distance = max(
+        spot * 0.004,
+        100,
+    )
+
+    if action == "BUY":
+        support = (
+            put_wall
+            if put_wall is not None and put_wall < spot
+            else max_pain
+            if max_pain is not None and max_pain < spot
+            else spot - fallback_distance
+        )
+
+        resistance = (
+            call_wall
+            if call_wall is not None and call_wall > spot
+            else spot + fallback_distance * 2
+        )
+
+        aggressive_entry = spot
+        conservative_entry = spot + fallback_distance * 0.20
+        stop_loss = support - fallback_distance * 0.20
+        target_1 = min(
+            resistance,
+            spot + fallback_distance,
+        )
+        target_2 = resistance
+        target_3 = resistance + fallback_distance
+
+    else:
+        resistance = (
+            call_wall
+            if call_wall is not None and call_wall > spot
+            else max_pain
+            if max_pain is not None and max_pain > spot
+            else spot + fallback_distance
+        )
+
+        support = (
+            put_wall
+            if put_wall is not None and put_wall < spot
+            else spot - fallback_distance * 2
+        )
+
+        aggressive_entry = spot
+        conservative_entry = spot - fallback_distance * 0.20
+        stop_loss = resistance + fallback_distance * 0.20
+        target_1 = max(
+            support,
+            spot - fallback_distance,
+        )
+        target_2 = support
+        target_3 = support - fallback_distance
+
+    risk = abs(
+        aggressive_entry - stop_loss
+    )
+
+    reward = abs(
+        target_2 - aggressive_entry
+    )
+
+    risk_reward = (
+        reward / risk
+        if risk > 0
+        else None
+    )
+
+    return {
+        "aggressive_entry": aggressive_entry,
+        "conservative_entry": conservative_entry,
+        "stop_loss": stop_loss,
+        "target_1": target_1,
+        "target_2": target_2,
+        "target_3": target_3,
+        "risk_reward": risk_reward,
+    }
+
+
+def build_decision(
+    underlying: str,
+) -> pd.DataFrame:
+    futures_frame = read_csv(
+        FUTURES_FILE
+    )
+
+    options_frame = read_csv(
+        OPTIONS_FILE
+    )
+
+    smart_frame = read_csv(
+        SMART_FILE
+    )
+
+    bank_frame = read_csv(
+        BANKNIFTY_FILE
+    )
+
+    futures = select_row(
+        futures_frame,
+        underlying,
+    )
+
+    options = select_row(
+        options_frame,
+        underlying,
+    )
+
+    smart = select_row(
+        smart_frame,
+        underlying,
+    )
+
+    bank = None
+
+    if (
+        underlying.strip().upper() == "BANKNIFTY"
+        and not bank_frame.empty
+    ):
+        bank = bank_frame.iloc[-1]
+
+    futures_bull, futures_bear, futures_reasons = score_futures(
+        futures
+    )
+
+    options_bull, options_bear, options_reasons = score_options(
+        options
+    )
+
+    wall_bull, wall_bear, wall_reasons, levels = score_walls_and_price(
+        options
+    )
+
+    _, _, volatility_quality, volatility_reasons = score_volatility(
+        options
+    )
+
+    smart_score = safe_float(
+        first_present(
+            smart,
+            ["total_smart_money_score"],
+        )
+    )
+
+    smart_bull = 50.0
+    smart_bear = 50.0
+    smart_reasons: list[str] = []
+
+    smart_bias = str(
+        first_present(
+            smart,
+            ["smart_money_bias"],
+            "",
+        )
+    ).upper()
+
+    if "BULL" in smart_bias:
+        smart_bull += 15
+        smart_bear -= 7
+        smart_reasons.append("Smart-money engine bullish")
+
+    elif "BEAR" in smart_bias:
+        smart_bear += 15
+        smart_bull -= 7
+        smart_reasons.append("Smart-money engine bearish")
+
+    if smart_score is not None:
+        smart_bull += max(
+            0,
+            smart_score * 2,
+        )
+
+        smart_bear += max(
+            0,
+            -smart_score * 2,
+        )
+
+    bull_score = (
+        futures_bull * 0.30
+        + options_bull * 0.30
+        + wall_bull * 0.20
+        + smart_bull * 0.20
+    )
+
+    bear_score = (
+        futures_bear * 0.30
+        + options_bear * 0.30
+        + wall_bear * 0.20
+        + smart_bear * 0.20
+    )
+
+    bull_score = clamp(
+        bull_score
+    )
+
+    bear_score = clamp(
+        bear_score
+    )
+
+    score_spread = bull_score - bear_score
+
+    if score_spread >= 12:
+        action = "BUY"
+
+    elif score_spread <= -12:
+        action = "SELL"
+
+    elif abs(score_spread) < 7:
+        action = "WAIT"
+
+    else:
+        action = "AVOID"
+
+    directional_strength = abs(
+        score_spread
+    )
+
+    confidence = clamp(
+        50
+        + directional_strength * 0.8
+        + (volatility_quality - 50) * 0.2
+    )
+
+    if action in {"WAIT", "AVOID"}:
+        confidence = min(
+            confidence,
+            59,
+        )
+
+    continuation_probability = safe_float(
+        first_present(
+            options,
+            ["continuation_probability"],
+        )
+    )
+
+    bullish_reversal_probability = safe_float(
+        first_present(
+            options,
+            ["bullish_reversal_probability"],
+        )
+    )
+
+    bearish_reversal_probability = safe_float(
+        first_present(
+            options,
+            ["bearish_reversal_probability"],
+        )
+    )
+
+    iv_regime = str(
+        first_present(
+            options,
+            ["iv_regime"],
+            "NO IV DATA",
+        )
+    )
+
+    market_regime = infer_market_regime(
+        bull_score,
+        bear_score,
+        continuation_probability,
+        iv_regime,
+    )
+
+    trade_levels = build_trade_levels(
+        action,
+        levels["spot"],
+        levels["put_wall"],
+        levels["call_wall"],
+        levels["max_pain"],
+    )
+
+    all_reasons = (
+        futures_reasons
+        + options_reasons
+        + wall_reasons
+        + smart_reasons
+        + volatility_reasons
+    )
+
+    reason_priority: list[str] = []
+
+    for reason in all_reasons:
+        if reason and reason not in reason_priority:
+            reason_priority.append(
+                reason
+            )
+
+    grade = grade_from_confidence(
+        confidence,
+        action,
+    )
+
+    decision_text = (
+        f"{action} | {market_regime} | "
+        f"Confidence {confidence:.1f}%"
+    )
+
+    result = {
+        "generated_at": datetime.now().isoformat(
+            timespec="seconds"
+        ),
+        "underlying": underlying.strip().upper(),
+        "spot_price": levels["spot"],
+        "institutional_bull_score": round(
+            bull_score,
+            1,
+        ),
+        "institutional_bear_score": round(
+            bear_score,
+            1,
+        ),
+        "probability_up": round(
+            bull_score,
+            1,
+        ),
+        "probability_down": round(
+            bear_score,
+            1,
+        ),
+        "confidence_percent": round(
+            confidence,
+            1,
+        ),
+        "confidence_label": probability_label(
+            confidence
+        ),
+        "market_regime": market_regime,
+        "suggested_action": action,
+        "trade_quality": grade,
+        "bullish_reversal_probability": bullish_reversal_probability,
+        "bearish_reversal_probability": bearish_reversal_probability,
+        "continuation_probability": continuation_probability,
+        "iv_regime": iv_regime,
+        "put_wall": levels["put_wall"],
+        "call_wall": levels["call_wall"],
+        "max_pain": levels["max_pain"],
+        "aggressive_entry": trade_levels["aggressive_entry"],
+        "conservative_entry": trade_levels["conservative_entry"],
+        "stop_loss": trade_levels["stop_loss"],
+        "target_1": trade_levels["target_1"],
+        "target_2": trade_levels["target_2"],
+        "target_3": trade_levels["target_3"],
+        "risk_reward": trade_levels["risk_reward"],
+        "decision": decision_text,
+        "reason_1": reason_priority[0] if len(reason_priority) > 0 else "",
+        "reason_2": reason_priority[1] if len(reason_priority) > 1 else "",
+        "reason_3": reason_priority[2] if len(reason_priority) > 2 else "",
+        "reason_4": reason_priority[3] if len(reason_priority) > 3 else "",
+        "reason_5": reason_priority[4] if len(reason_priority) > 4 else "",
+        "reason_6": reason_priority[5] if len(reason_priority) > 5 else "",
+        "order_placement": "DISABLED",
+    }
+
+    if bank is not None:
+        result["expected_low"] = safe_float(
+            first_present(
+                bank,
+                ["straddle_expected_low"],
+            )
+        )
+
+        result["expected_high"] = safe_float(
+            first_present(
+                bank,
+                ["straddle_expected_high"],
+            )
+        )
+
+    else:
+        result["expected_low"] = None
+        result["expected_high"] = None
+
+    return pd.DataFrame(
+        [result]
+    )
+
+
+def save_outputs(
+    summary: pd.DataFrame,
+) -> None:
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    summary.to_csv(
+        SUMMARY_OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    if HISTORY_OUTPUT.exists():
+        history = pd.read_csv(
+            HISTORY_OUTPUT,
+            low_memory=False,
+        )
+
+        history = pd.concat(
+            [
+                history,
+                summary,
+            ],
+            ignore_index=True,
+        )
+
+    else:
+        history = summary.copy()
+
+    history.to_csv(
+        HISTORY_OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    JSON_OUTPUT.write_text(
+        json.dumps(
+            {
+                "decision": summary.to_dict(
+                    orient="records"
+                )
+            },
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+
+
+def show_results(
+    summary: pd.DataFrame,
+) -> None:
+    row = summary.iloc[0]
+
+    print("\nAQSD INSTITUTIONAL DECISION ENGINE")
+    print("=" * 94)
+    print(f"Underlying:             {row['underlying']}")
+    print(f"Spot:                   {row['spot_price']}")
+    print(f"Suggested Action:       {row['suggested_action']}")
+    print(f"Trade Quality:          {row['trade_quality']}")
+    print(f"Confidence:             {row['confidence_percent']}%")
+    print(f"Market Regime:          {row['market_regime']}")
+    print("-" * 94)
+    print(f"Institutional Bull:     {row['institutional_bull_score']}")
+    print(f"Institutional Bear:     {row['institutional_bear_score']}")
+    print(f"Probability Up:         {row['probability_up']}%")
+    print(f"Probability Down:       {row['probability_down']}%")
+    print("-" * 94)
+    print(f"Aggressive Entry:       {row['aggressive_entry']}")
+    print(f"Conservative Entry:     {row['conservative_entry']}")
+    print(f"Stop Loss:              {row['stop_loss']}")
+    print(f"Target 1:               {row['target_1']}")
+    print(f"Target 2:               {row['target_2']}")
+    print(f"Target 3:               {row['target_3']}")
+    print(f"Risk / Reward:          {row['risk_reward']}")
+    print("-" * 94)
+    print(f"Reason 1:               {row['reason_1']}")
+    print(f"Reason 2:               {row['reason_2']}")
+    print(f"Reason 3:               {row['reason_3']}")
+    print(f"Reason 4:               {row['reason_4']}")
+    print(f"Reason 5:               {row['reason_5']}")
+    print("=" * 94)
+    print(f"CSV:                    {SUMMARY_OUTPUT}")
+    print(f"JSON:                   {JSON_OUTPUT}")
+    print(f"History:                {HISTORY_OUTPUT}")
+    print("Order placement:        DISABLED")
 
 
 def show_status() -> None:
-    setup_schema()
+    print("\nAQSD INSTITUTIONAL DECISION ENGINE STATUS")
+    print("=" * 82)
+    print("Version: 1.0")
 
-    with connect() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(DISTINCT symbol_id) AS symbols,
-                MIN(trade_date) AS first_date,
-                MAX(trade_date) AS latest_date
-            FROM aqsd_trade_decisions
-            """
-        ).fetchone()
+    for label, path in [
+        ("Futures analytics", FUTURES_FILE),
+        ("Options intelligence", OPTIONS_FILE),
+        ("Smart money", SMART_FILE),
+        ("BANKNIFTY levels", BANKNIFTY_FILE),
+    ]:
+        print(
+            f"{label:<22}: "
+            f"{'FOUND' if path.exists() else 'MISSING / OPTIONAL'}"
+        )
 
-    print("\nAQSD DECISION ENGINE STATUS")
-    print("=" * 72)
-    print(f"Stored decisions:  {row['total'] or 0}")
-    print(f"Symbols covered:   {row['symbols'] or 0}")
-    print(f"First date:        {row['first_date'] or 'No data'}")
-    print(f"Latest date:       {row['latest_date'] or 'No data'}")
-    print("=" * 72)
+    print(f"Output folder: {OUTPUT_DIR}")
+    print("Order placement: DISABLED")
+    print("=" * 82)
 
-
-# ============================================================
-# CLI
-# ============================================================
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="AQSD Trade Decision and Watchlist Engine."
+        description="AQSD Institutional Decision Engine."
     )
 
     parser.add_argument(
         "--run",
         action="store_true",
-        help="Build daily trade decisions.",
-    )
-
-    parser.add_argument(
-        "--report",
-        action="store_true",
-        help="Rebuild Excel report from stored data.",
     )
 
     parser.add_argument(
         "--status",
         action="store_true",
-        help="Show decision-engine status.",
     )
 
     parser.add_argument(
-        "--symbol",
-        metavar="SYMBOL",
-        help="Show one symbol's trade decision.",
+        "--underlying",
+        help="Underlying such as BANKNIFTY, NIFTY or RELIANCE.",
     )
 
     return parser.parse_args()
@@ -1002,50 +1118,29 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_arguments()
-    setup_schema()
 
-    if args.symbol:
-        show_symbol(args.symbol)
+    if args.status:
+        show_status()
         return
 
-    if args.run:
-        decisions = run_engine()
-        write_report(decisions)
+    if not args.underlying:
+        raise SystemExit(
+            "Please provide --underlying, for example:\n"
+            "python aqsd_decision_engine.py "
+            "--run --underlying BANKNIFTY"
+        )
 
-        print("\nAQSD TRADE DECISION ENGINE")
-        print("=" * 72)
-        print(f"Stocks ranked: {len(decisions)}")
+    summary = build_decision(
+        args.underlying
+    )
 
-        actionable = [
-            item
-            for item in decisions
-            if item["action"] in {
-                "STRONG BUY",
-                "BUY",
-                "BUY ON DIP",
-            }
-        ]
+    save_outputs(
+        summary
+    )
 
-        print(f"Actionable longs: {len(actionable)}")
-
-        if decisions:
-            top = decisions[0]
-            print(
-                f"Top priority: "
-                f"{top['nse_symbol']} | "
-                f"{top['action']} | "
-                f"{top['priority_score']}"
-            )
-
-        print(f"Report: {DASHBOARD}")
-        return
-
-    if args.report:
-        write_report()
-        print(f"Report rebuilt:\n{DASHBOARD}")
-        return
-
-    show_status()
+    show_results(
+        summary
+    )
 
 
 if __name__ == "__main__":
