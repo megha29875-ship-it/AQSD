@@ -1,1128 +1,1418 @@
-
 """
-AQSD Derivatives Intelligence
-Module: Options OI & PCR Intelligence Engine
+AQSD Professional
+Module: Advanced Options Intelligence Engine
 Version: 1.0
 
 Purpose
 -------
-Builds options-chain intelligence from imported EOD or live snapshots.
+Calculates advanced options intelligence for one underlying using AQSD's
+existing FYERS outputs.
 
-The module is provider-agnostic. It can later accept data from NSE,
-Quantsapp, TrueData, broker APIs, Opstra, Sensibull or any other source,
-provided the data is converted into the expected CSV structure.
-
-Core features
--------------
-- Call OI and Put OI
-- Change in Call OI and Put OI
-- OI PCR
-- Volume PCR
+Key outputs
+-----------
+- PCR OI
+- PCR Change in OI
+- PCR Volume
+- ATM-zone PCR
+- Weighted PCR
 - Modified PCR
-- Max Pain
-- Highest Call OI wall
-- Highest Put OI wall
-- Call writing / Put writing detection
-- Short covering / Long unwinding detection
-- Support / Resistance from options OI
-- Options Intelligence Score from 0 to 100
-- Excel report: Options Intelligence
-- SQLite storage in aqsd_core.db
+- Positional and fresh call/put walls
+- Secondary walls
+- Wall shifts
+- Max-pain shift and pinning score
+- OI concentration and dispersion
+- IV / HV analytics when source columns are available
+- Bullish reversal probability
+- Bearish reversal probability
+- Continuation probability
+- Explainable conclusion
+- Historical snapshot storage
 
-Minimum CSV columns
--------------------
-trade_date
-nse_symbol
-expiry_date
-strike_price
-option_type
-open_interest
-volume
-last_price
-underlying_price
+Inputs
+------
+Output/AQSD_FYERS_Option_Chain.csv
+Output/AQSD_FYERS_Option_Chain_Summary.csv
+Output/AQSD_FYERS_Futures_OI_Analytics.csv
 
-Recommended additional columns
-------------------------------
-previous_open_interest
-previous_last_price
-implied_volatility
-bid_price
-ask_price
+Outputs
+-------
+Output/AQSD_Options_Intelligence.csv
+Output/AQSD_Options_Intelligence.json
+Output/AQSD_Options_Intelligence_History.csv
+Output/AQSD_Options_Intelligence_Walls.csv
 
-Commands
+Safety
+------
+- No order placement
+- No database writes
+- Yahoo files untouched
+
+Examples
 --------
-python aqsd_options_intelligence.py --setup
-python aqsd_options_intelligence.py --import-csv C:\\Users\\megha\\AQSD\\Data\\options_data.csv
-python aqsd_options_intelligence.py --analyse
-python aqsd_options_intelligence.py --report
 python aqsd_options_intelligence.py --status
+python aqsd_options_intelligence.py --run --underlying BANKNIFTY
+python aqsd_options_intelligence.py --run --underlying NIFTY --atm-strikes 5
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from aqsd_database import connect, setup_database, start_run, finish_run
-
-
-# ============================================================
-# PATHS
-# ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DASHBOARD = BASE_DIR / "Output" / "Dashboard.xlsx"
+OUTPUT_DIR = BASE_DIR / "Output"
+
+OPTION_CHAIN_FILE = OUTPUT_DIR / "AQSD_FYERS_Option_Chain.csv"
+OPTION_SUMMARY_FILE = OUTPUT_DIR / "AQSD_FYERS_Option_Chain_Summary.csv"
+FUTURES_FILE = OUTPUT_DIR / "AQSD_FYERS_Futures_OI_Analytics.csv"
+
+SUMMARY_OUTPUT = OUTPUT_DIR / "AQSD_Options_Intelligence.csv"
+JSON_OUTPUT = OUTPUT_DIR / "AQSD_Options_Intelligence.json"
+HISTORY_OUTPUT = OUTPUT_DIR / "AQSD_Options_Intelligence_History.csv"
+WALLS_OUTPUT = OUTPUT_DIR / "AQSD_Options_Intelligence_Walls.csv"
 
 
-# ============================================================
-# COLORS
-# ============================================================
-
-NAVY = "17365D"
-BLUE = "D9EAF7"
-GREEN = "C6EFCE"
-RED = "FFC7CE"
-YELLOW = "FFF2CC"
-GREY = "E7E6E6"
-WHITE = "FFFFFF"
-THIN = Side(style="thin", color="D9D9D9")
-
-
-# ============================================================
-# DATABASE SCHEMA
-# ============================================================
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS options_chain (
-    option_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trade_date TEXT NOT NULL,
-    nse_symbol TEXT NOT NULL,
-    expiry_date TEXT NOT NULL,
-    strike_price REAL NOT NULL,
-    option_type TEXT NOT NULL,
-    open_interest REAL NOT NULL,
-    previous_open_interest REAL,
-    oi_change REAL,
-    oi_change_percent REAL,
-    volume REAL,
-    last_price REAL,
-    previous_last_price REAL,
-    price_change_percent REAL,
-    implied_volatility REAL,
-    bid_price REAL,
-    ask_price REAL,
-    underlying_price REAL NOT NULL,
-    activity_type TEXT,
-    source TEXT,
-    event_hash TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_options_symbol_date
-ON options_chain(nse_symbol, trade_date);
-
-CREATE INDEX IF NOT EXISTS idx_options_symbol_expiry
-ON options_chain(nse_symbol, expiry_date);
-
-CREATE TABLE IF NOT EXISTS options_intelligence (
-    intelligence_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trade_date TEXT NOT NULL,
-    nse_symbol TEXT NOT NULL,
-    expiry_date TEXT NOT NULL,
-    underlying_price REAL,
-    call_oi REAL,
-    put_oi REAL,
-    call_oi_change REAL,
-    put_oi_change REAL,
-    call_volume REAL,
-    put_volume REAL,
-    oi_pcr REAL,
-    volume_pcr REAL,
-    modified_pcr REAL,
-    max_pain REAL,
-    call_wall REAL,
-    put_wall REAL,
-    options_support REAL,
-    options_resistance REAL,
-    directional_bias TEXT,
-    options_score REAL,
-    explanation TEXT,
-    created_at TEXT NOT NULL,
-    UNIQUE(trade_date, nse_symbol, expiry_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_options_intelligence_symbol_date
-ON options_intelligence(nse_symbol, trade_date);
-"""
-
-
-def setup_options_schema() -> None:
-    setup_database()
-
-    with connect() as connection:
-        connection.executescript(SCHEMA)
-        connection.commit()
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def clean_text(value: Any) -> str:
-    text = str(value or "").strip()
-
-    if text.lower() in {"nan", "none", "null"}:
-        return ""
-
-    return text
-
-
-def normalize_symbol(value: Any) -> str:
-    symbol = clean_text(value).upper()
-
-    if symbol.endswith(".NS"):
-        symbol = symbol[:-3]
-
-    return symbol.replace(" ", "")
-
-
-def normalize_option_type(value: Any) -> str:
-    text = clean_text(value).upper()
-
-    if text in {"CE", "CALL", "C"}:
-        return "CE"
-
-    if text in {"PE", "PUT", "P"}:
-        return "PE"
-
-    raise ValueError(f"Unknown option type: {value}")
-
-
-def safe_float(
-    value: Any,
-    default: float | None = None,
-) -> float | None:
+def safe_float(value: Any) -> float | None:
     try:
         if value is None or value == "":
-            return default
+            return None
 
-        return float(value)
+        number = float(value)
+
+        if math.isnan(number):
+            return None
+
+        return number
 
     except (TypeError, ValueError):
-        return default
-
-
-def parse_date(value: Any) -> str:
-    parsed = pd.to_datetime(value, errors="coerce")
-
-    if pd.isna(parsed):
-        raise ValueError(f"Invalid date: {value}")
-
-    return parsed.date().isoformat()
-
-
-def pct_change(
-    current: float | None,
-    previous: float | None,
-) -> float | None:
-    if current is None or previous in (None, 0):
         return None
 
-    return round((current / previous - 1) * 100, 2)
+
+def numeric(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(0.0, index=frame.index, dtype=float)
+
+    return pd.to_numeric(
+        frame[column],
+        errors="coerce",
+    ).fillna(0.0)
 
 
-def build_hash(record: dict) -> str:
-    raw = "|".join(
-        [
-            record["trade_date"],
-            record["nse_symbol"],
-            record["expiry_date"],
-            str(record["strike_price"]),
-            record["option_type"],
-        ]
-    )
-
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-# ============================================================
-# OPTION ACTIVITY CLASSIFICATION
-# ============================================================
-
-def classify_option_activity(
-    price_change_percent: float | None,
-    oi_change_percent: float | None,
-    option_type: str,
-) -> str:
-    if price_change_percent is None or oi_change_percent is None:
-        return "UNCLASSIFIED"
-
-    if price_change_percent > 0 and oi_change_percent > 0:
-        return (
-            "CALL BUYING"
-            if option_type == "CE"
-            else "PUT BUYING"
-        )
-
-    if price_change_percent < 0 and oi_change_percent > 0:
-        return (
-            "CALL WRITING"
-            if option_type == "CE"
-            else "PUT WRITING"
-        )
-
-    if price_change_percent > 0 and oi_change_percent < 0:
-        return "SHORT COVERING"
-
-    if price_change_percent < 0 and oi_change_percent < 0:
-        return "LONG UNWINDING"
-
-    return "NEUTRAL"
-
-
-# ============================================================
-# CSV IMPORT
-# ============================================================
-
-ALIASES = {
-    "date": "trade_date",
-    "symbol": "nse_symbol",
-    "ticker": "nse_symbol",
-    "expiry": "expiry_date",
-    "strike": "strike_price",
-    "type": "option_type",
-    "option": "option_type",
-    "oi": "open_interest",
-    "prev_oi": "previous_open_interest",
-    "previous_oi": "previous_open_interest",
-    "ltp": "last_price",
-    "prev_ltp": "previous_last_price",
-    "iv": "implied_volatility",
-    "underlying": "underlying_price",
-    "spot_price": "underlying_price",
-}
-
-
-def normalize_input_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    renamed = {}
-
-    for column in frame.columns:
-        key = (
-            str(column)
-            .strip()
-            .lower()
-            .replace(" ", "_")
-            .replace("/", "_")
-        )
-
-        renamed[column] = ALIASES.get(key, key)
-
-    return frame.rename(columns=renamed)
-
-
-def import_csv(path: Path, source: str) -> tuple[int, int]:
-    setup_options_schema()
-
+def load_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
-        raise FileNotFoundError(path)
+        raise FileNotFoundError(f"Required file missing:\n{path}")
 
-    frame = normalize_input_frame(
-        pd.read_csv(path)
-    )
+    return pd.read_csv(path, low_memory=False)
 
-    required = {
-        "trade_date",
-        "nse_symbol",
-        "expiry_date",
-        "strike_price",
-        "option_type",
-        "open_interest",
-        "volume",
-        "last_price",
-        "underlying_price",
-    }
 
-    if not required.issubset(frame.columns):
-        missing = sorted(required - set(frame.columns))
+def select_underlying_row(
+    frame: pd.DataFrame,
+    underlying: str,
+) -> pd.Series:
+    if "underlying" not in frame.columns:
+        raise RuntimeError(
+            f"File has no 'underlying' column: {list(frame.columns)}"
+        )
+
+    target = underlying.strip().upper()
+
+    rows = frame[
+        frame["underlying"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .eq(target)
+    ]
+
+    if rows.empty:
+        available = ", ".join(
+            frame["underlying"]
+            .astype(str)
+            .drop_duplicates()
+            .head(20)
+            .tolist()
+        )
 
         raise RuntimeError(
-            "Missing required columns: " + ", ".join(missing)
+            f"No row found for {target}. Available: {available or 'none'}"
         )
 
-    inserted = 0
-    duplicates = 0
+    return rows.iloc[0]
 
-    run_id = start_run(
-        "aqsd_options_intelligence",
-        f"Importing {path.name}",
+
+def load_inputs(
+    underlying: str,
+) -> tuple[pd.DataFrame, pd.Series, pd.Series | None]:
+    chain = load_csv(OPTION_CHAIN_FILE)
+    summary = load_csv(OPTION_SUMMARY_FILE)
+
+    summary_row = select_underlying_row(
+        summary,
+        underlying,
     )
 
-    try:
-        with connect() as connection:
-            for _, row in frame.iterrows():
-                record = {
-                    "trade_date": parse_date(row.get("trade_date")),
-                    "nse_symbol": normalize_symbol(
-                        row.get("nse_symbol")
-                    ),
-                    "expiry_date": parse_date(
-                        row.get("expiry_date")
-                    ),
-                    "strike_price": safe_float(
-                        row.get("strike_price")
-                    ),
-                    "option_type": normalize_option_type(
-                        row.get("option_type")
-                    ),
-                    "open_interest": safe_float(
-                        row.get("open_interest")
-                    ),
-                    "previous_open_interest": safe_float(
-                        row.get("previous_open_interest")
-                    ),
-                    "volume": safe_float(
-                        row.get("volume"),
-                        0,
-                    ),
-                    "last_price": safe_float(
-                        row.get("last_price")
-                    ),
-                    "previous_last_price": safe_float(
-                        row.get("previous_last_price")
-                    ),
-                    "implied_volatility": safe_float(
-                        row.get("implied_volatility")
-                    ),
-                    "bid_price": safe_float(
-                        row.get("bid_price")
-                    ),
-                    "ask_price": safe_float(
-                        row.get("ask_price")
-                    ),
-                    "underlying_price": safe_float(
-                        row.get("underlying_price")
-                    ),
-                }
+    if "underlying" in chain.columns:
+        target = underlying.strip().upper()
 
-                if (
-                    not record["nse_symbol"]
-                    or record["strike_price"] is None
-                    or record["open_interest"] is None
-                    or record["last_price"] is None
-                    or record["underlying_price"] is None
-                ):
-                    continue
+        chain_rows = chain[
+            chain["underlying"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .eq(target)
+        ].copy()
 
-                oi_change = (
-                    record["open_interest"]
-                    - record["previous_open_interest"]
-                    if record["previous_open_interest"] is not None
-                    else None
-                )
+        if not chain_rows.empty:
+            chain = chain_rows
 
-                oi_change_percent = pct_change(
-                    record["open_interest"],
-                    record["previous_open_interest"],
-                )
+    futures_row = None
 
-                price_change_percent = pct_change(
-                    record["last_price"],
-                    record["previous_last_price"],
-                )
-
-                activity_type = classify_option_activity(
-                    price_change_percent,
-                    oi_change_percent,
-                    record["option_type"],
-                )
-
-                hashed = build_hash(record)
-
-                try:
-                    connection.execute(
-                        """
-                        INSERT INTO options_chain(
-                            trade_date,
-                            nse_symbol,
-                            expiry_date,
-                            strike_price,
-                            option_type,
-                            open_interest,
-                            previous_open_interest,
-                            oi_change,
-                            oi_change_percent,
-                            volume,
-                            last_price,
-                            previous_last_price,
-                            price_change_percent,
-                            implied_volatility,
-                            bid_price,
-                            ask_price,
-                            underlying_price,
-                            activity_type,
-                            source,
-                            event_hash,
-                            created_at
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            record["trade_date"],
-                            record["nse_symbol"],
-                            record["expiry_date"],
-                            record["strike_price"],
-                            record["option_type"],
-                            record["open_interest"],
-                            record["previous_open_interest"],
-                            oi_change,
-                            oi_change_percent,
-                            record["volume"],
-                            record["last_price"],
-                            record["previous_last_price"],
-                            price_change_percent,
-                            record["implied_volatility"],
-                            record["bid_price"],
-                            record["ask_price"],
-                            record["underlying_price"],
-                            activity_type,
-                            source,
-                            hashed,
-                            datetime.now().isoformat(
-                                timespec="seconds"
-                            ),
-                        ),
-                    )
-
-                    inserted += 1
-
-                except Exception as error:
-                    if "UNIQUE constraint failed" in str(error):
-                        duplicates += 1
-                    else:
-                        raise
-
-            connection.commit()
-
-        finish_run(
-            run_id,
-            status="SUCCESS",
-            records_processed=inserted,
-            errors_count=duplicates,
-            message=(
-                f"Inserted={inserted}; "
-                f"duplicates={duplicates}"
-            ),
+    if FUTURES_FILE.exists():
+        futures = pd.read_csv(
+            FUTURES_FILE,
+            low_memory=False,
         )
 
-        return inserted, duplicates
-
-    except Exception as error:
-        finish_run(
-            run_id,
-            status="FAILED",
-            records_processed=inserted,
-            errors_count=duplicates + 1,
-            message=str(error),
-        )
-        raise
-
-
-# ============================================================
-# INTELLIGENCE CALCULATIONS
-# ============================================================
-
-def latest_chain() -> pd.DataFrame:
-    setup_options_schema()
-
-    with connect() as connection:
-        return pd.read_sql_query(
-            """
-            SELECT *
-            FROM options_chain
-            WHERE trade_date = (
-                SELECT MAX(trade_date)
-                FROM options_chain
+        try:
+            futures_row = select_underlying_row(
+                futures,
+                underlying,
             )
-            ORDER BY nse_symbol, expiry_date, strike_price, option_type
-            """,
-            connection,
-        )
+        except RuntimeError:
+            futures_row = None
+
+    return chain, summary_row, futures_row
 
 
-def max_pain(chain: pd.DataFrame) -> float | None:
-    if chain.empty:
+def sum_positive(series: pd.Series) -> float:
+    return float(series[series > 0].sum())
+
+
+def ratio(
+    numerator: float,
+    denominator: float,
+) -> float | None:
+    if denominator <= 0:
         return None
 
+    return numerator / denominator
+
+
+def nearest_strikes(
+    chain: pd.DataFrame,
+    atm: float,
+    count_each_side: int,
+) -> pd.DataFrame:
     strikes = sorted(
-        chain["strike_price"].dropna().unique()
+        pd.to_numeric(
+            chain["strike_price"],
+            errors="coerce",
+        )
+        .dropna()
+        .drop_duplicates()
+        .tolist()
     )
 
     if not strikes:
-        return None
+        return chain.copy()
 
-    pain_values = []
-
-    calls = chain[
-        chain["option_type"] == "CE"
-    ][["strike_price", "open_interest"]]
-
-    puts = chain[
-        chain["option_type"] == "PE"
-    ][["strike_price", "open_interest"]]
-
-    for settlement in strikes:
-        call_pain = (
-            (
-                (settlement - calls["strike_price"]).clip(lower=0)
-                * calls["open_interest"]
-            ).sum()
-        )
-
-        put_pain = (
-            (
-                (puts["strike_price"] - settlement).clip(lower=0)
-                * puts["open_interest"]
-            ).sum()
-        )
-
-        pain_values.append(
-            (settlement, call_pain + put_pain)
-        )
-
-    return float(
-        min(
-            pain_values,
-            key=lambda item: item[1],
-        )[0]
+    nearest = min(
+        strikes,
+        key=lambda value: abs(value - atm),
     )
 
+    index = strikes.index(nearest)
 
-def calculate_options_score(
-    oi_pcr: float,
-    volume_pcr: float,
-    modified_pcr: float,
-    underlying: float,
-    put_wall: float | None,
-    call_wall: float | None,
-) -> tuple[float, str, str]:
-    score = 50.0
-    reasons = []
+    selected = set(
+        strikes[
+            max(0, index - count_each_side):
+            min(len(strikes), index + count_each_side + 1)
+        ]
+    )
 
-    if oi_pcr >= 1.2:
-        score += 15
-        reasons.append("Strong Put OI dominance")
-    elif oi_pcr >= 1.0:
-        score += 8
-        reasons.append("Put OI moderately dominant")
-    elif oi_pcr <= 0.7:
-        score -= 15
-        reasons.append("Call OI strongly dominant")
-    elif oi_pcr <= 0.9:
-        score -= 8
-        reasons.append("Call OI moderately dominant")
-
-    if volume_pcr >= 1.2:
-        score += 8
-        reasons.append("Put volume dominance")
-    elif volume_pcr <= 0.8:
-        score -= 8
-        reasons.append("Call volume dominance")
-
-    if modified_pcr >= 1.2:
-        score += 10
-        reasons.append("Positive modified PCR")
-    elif modified_pcr <= 0.8:
-        score -= 10
-        reasons.append("Negative modified PCR")
-
-    if put_wall is not None and underlying >= put_wall:
-        score += 5
-        reasons.append("Price above Put OI support")
-
-    if call_wall is not None and underlying <= call_wall:
-        score += 2
-        reasons.append("Price below Call OI resistance")
-
-    score = round(max(0, min(100, score)), 2)
-
-    if score >= 75:
-        bias = "STRONG BULLISH"
-    elif score >= 60:
-        bias = "BULLISH"
-    elif score <= 25:
-        bias = "STRONG BEARISH"
-    elif score <= 40:
-        bias = "BEARISH"
-    else:
-        bias = "NEUTRAL"
-
-    return score, bias, " | ".join(reasons)
+    return chain[
+        pd.to_numeric(
+            chain["strike_price"],
+            errors="coerce",
+        ).isin(selected)
+    ].copy()
 
 
-def analyse_options() -> pd.DataFrame:
-    chain = latest_chain()
+def top_two_walls(
+    chain: pd.DataFrame,
+    value_column: str,
+) -> list[dict[str, float | None]]:
+    if value_column not in chain.columns:
+        return [
+            {"strike": None, "value": None},
+            {"strike": None, "value": None},
+        ]
 
-    if chain.empty:
-        return pd.DataFrame()
+    work = chain[
+        ["strike_price", value_column]
+    ].copy()
 
-    rows = []
+    work["strike_price"] = pd.to_numeric(
+        work["strike_price"],
+        errors="coerce",
+    )
 
-    for (symbol, expiry), group in chain.groupby(
-        ["nse_symbol", "expiry_date"]
-    ):
-        calls = group[group["option_type"] == "CE"]
-        puts = group[group["option_type"] == "PE"]
+    work[value_column] = pd.to_numeric(
+        work[value_column],
+        errors="coerce",
+    )
 
-        call_oi = float(calls["open_interest"].sum())
-        put_oi = float(puts["open_interest"].sum())
+    work = (
+        work.dropna()
+        .sort_values(value_column, ascending=False)
+        .drop_duplicates("strike_price")
+        .head(2)
+    )
 
-        call_oi_change = float(
-            calls["oi_change"].fillna(0).sum()
-        )
-        put_oi_change = float(
-            puts["oi_change"].fillna(0).sum()
-        )
+    result = [
+        {
+            "strike": safe_float(row["strike_price"]),
+            "value": safe_float(row[value_column]),
+        }
+        for _, row in work.iterrows()
+    ]
 
-        call_volume = float(
-            calls["volume"].fillna(0).sum()
-        )
-        put_volume = float(
-            puts["volume"].fillna(0).sum()
-        )
-
-        oi_pcr = (
-            put_oi / call_oi
-            if call_oi
-            else 0.0
-        )
-
-        volume_pcr = (
-            put_volume / call_volume
-            if call_volume
-            else 0.0
-        )
-
-        modified_pcr = (
-            (put_oi + max(0, put_oi_change))
-            / (call_oi + max(0, call_oi_change))
-            if (call_oi + max(0, call_oi_change))
-            else 0.0
-        )
-
-        underlying = float(
-            group["underlying_price"].dropna().iloc[-1]
-        )
-
-        call_wall = (
-            float(
-                calls.loc[
-                    calls["open_interest"].idxmax(),
-                    "strike_price",
-                ]
-            )
-            if not calls.empty
-            else None
-        )
-
-        put_wall = (
-            float(
-                puts.loc[
-                    puts["open_interest"].idxmax(),
-                    "strike_price",
-                ]
-            )
-            if not puts.empty
-            else None
-        )
-
-        pain = max_pain(group)
-
-        score, bias, explanation = calculate_options_score(
-            oi_pcr,
-            volume_pcr,
-            modified_pcr,
-            underlying,
-            put_wall,
-            call_wall,
-        )
-
-        rows.append(
+    while len(result) < 2:
+        result.append(
             {
-                "trade_date": group["trade_date"].max(),
-                "nse_symbol": symbol,
-                "expiry_date": expiry,
-                "underlying_price": underlying,
-                "call_oi": call_oi,
-                "put_oi": put_oi,
-                "call_oi_change": call_oi_change,
-                "put_oi_change": put_oi_change,
-                "call_volume": call_volume,
-                "put_volume": put_volume,
-                "oi_pcr": round(oi_pcr, 3),
-                "volume_pcr": round(volume_pcr, 3),
-                "modified_pcr": round(modified_pcr, 3),
-                "max_pain": pain,
-                "call_wall": call_wall,
-                "put_wall": put_wall,
-                "options_support": put_wall,
-                "options_resistance": call_wall,
-                "directional_bias": bias,
-                "options_score": score,
-                "explanation": explanation,
+                "strike": None,
+                "value": None,
             }
         )
-
-    result = pd.DataFrame(rows).sort_values(
-        "options_score",
-        ascending=False,
-    )
-
-    with connect() as connection:
-        for _, row in result.iterrows():
-            connection.execute(
-                """
-                INSERT INTO options_intelligence(
-                    trade_date,
-                    nse_symbol,
-                    expiry_date,
-                    underlying_price,
-                    call_oi,
-                    put_oi,
-                    call_oi_change,
-                    put_oi_change,
-                    call_volume,
-                    put_volume,
-                    oi_pcr,
-                    volume_pcr,
-                    modified_pcr,
-                    max_pain,
-                    call_wall,
-                    put_wall,
-                    options_support,
-                    options_resistance,
-                    directional_bias,
-                    options_score,
-                    explanation,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(trade_date, nse_symbol, expiry_date)
-                DO UPDATE SET
-                    underlying_price = excluded.underlying_price,
-                    call_oi = excluded.call_oi,
-                    put_oi = excluded.put_oi,
-                    call_oi_change = excluded.call_oi_change,
-                    put_oi_change = excluded.put_oi_change,
-                    call_volume = excluded.call_volume,
-                    put_volume = excluded.put_volume,
-                    oi_pcr = excluded.oi_pcr,
-                    volume_pcr = excluded.volume_pcr,
-                    modified_pcr = excluded.modified_pcr,
-                    max_pain = excluded.max_pain,
-                    call_wall = excluded.call_wall,
-                    put_wall = excluded.put_wall,
-                    options_support = excluded.options_support,
-                    options_resistance = excluded.options_resistance,
-                    directional_bias = excluded.directional_bias,
-                    options_score = excluded.options_score,
-                    explanation = excluded.explanation,
-                    created_at = excluded.created_at
-                """,
-                (
-                    row["trade_date"],
-                    row["nse_symbol"],
-                    row["expiry_date"],
-                    row["underlying_price"],
-                    row["call_oi"],
-                    row["put_oi"],
-                    row["call_oi_change"],
-                    row["put_oi_change"],
-                    row["call_volume"],
-                    row["put_volume"],
-                    row["oi_pcr"],
-                    row["volume_pcr"],
-                    row["modified_pcr"],
-                    row["max_pain"],
-                    row["call_wall"],
-                    row["put_wall"],
-                    row["options_support"],
-                    row["options_resistance"],
-                    row["directional_bias"],
-                    row["options_score"],
-                    row["explanation"],
-                    datetime.now().isoformat(
-                        timespec="seconds"
-                    ),
-                ),
-            )
-
-        connection.commit()
 
     return result
 
 
-# ============================================================
-# EXCEL REPORT
-# ============================================================
+def fresh_wall(
+    chain: pd.DataFrame,
+    change_column: str,
+) -> dict[str, float | None]:
+    if change_column not in chain.columns:
+        return {
+            "strike": None,
+            "change": None,
+        }
 
-def write_report() -> None:
-    summary = analyse_options()
-    chain = latest_chain()
+    work = chain[
+        ["strike_price", change_column]
+    ].copy()
 
-    if DASHBOARD.exists():
-        wb = load_workbook(DASHBOARD)
-    else:
-        wb = Workbook()
-
-        if "Sheet" in wb.sheetnames:
-            del wb["Sheet"]
-
-    if "Options Intelligence" in wb.sheetnames:
-        del wb["Options Intelligence"]
-
-    ws = wb.create_sheet("Options Intelligence", 1)
-    ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A8"
-
-    ws.merge_cells("A1:V2")
-    ws["A1"] = "AQSD PROFESSIONAL - OPTIONS OI & PCR INTELLIGENCE"
-    ws["A1"].font = Font(
-        size=20,
-        bold=True,
-        color=WHITE,
-    )
-    ws["A1"].fill = PatternFill(
-        "solid",
-        fgColor=NAVY,
-    )
-    ws["A1"].alignment = Alignment(
-        horizontal="center",
-        vertical="center",
+    work["strike_price"] = pd.to_numeric(
+        work["strike_price"],
+        errors="coerce",
     )
 
-    ws["A4"] = "Symbols Analysed"
-    ws["B4"] = len(summary)
-    ws["D4"] = "Option Rows"
-    ws["E4"] = len(chain)
-    ws["G4"] = "Updated"
-    ws["H4"] = datetime.now().strftime("%d-%m-%Y %H:%M")
+    work[change_column] = pd.to_numeric(
+        work[change_column],
+        errors="coerce",
+    )
 
-    for ref in ("A4", "D4", "G4"):
-        ws[ref].font = Font(bold=True)
-        ws[ref].fill = PatternFill(
-            "solid",
-            fgColor=BLUE,
-        )
+    work = work[
+        work[change_column] > 0
+    ].dropna()
 
-    headers = [
-        "Rank",
-        "Symbol",
-        "Expiry",
-        "Underlying",
-        "Call OI",
-        "Put OI",
-        "Call OI Change",
-        "Put OI Change",
-        "OI PCR",
-        "Volume PCR",
-        "Modified PCR",
-        "Max Pain",
-        "Call Wall",
-        "Put Wall",
-        "Support",
-        "Resistance",
-        "Options Bias",
-        "Options Score",
-        "Explanation",
+    if work.empty:
+        return {
+            "strike": None,
+            "change": None,
+        }
+
+    row = work.loc[
+        work[change_column].idxmax()
     ]
 
-    for col, heading in enumerate(headers, start=1):
-        cell = ws.cell(7, col, heading)
-        cell.font = Font(bold=True, color=WHITE)
-        cell.fill = PatternFill("solid", fgColor=NAVY)
-        cell.alignment = Alignment(
-            horizontal="center",
-            wrap_text=True,
-        )
-
-    for row_no, (_, row) in enumerate(
-        summary.iterrows(),
-        start=8,
-    ):
-        values = [
-            row_no - 7,
-            row["nse_symbol"],
-            row["expiry_date"],
-            row["underlying_price"],
-            row["call_oi"],
-            row["put_oi"],
-            row["call_oi_change"],
-            row["put_oi_change"],
-            row["oi_pcr"],
-            row["volume_pcr"],
-            row["modified_pcr"],
-            row["max_pain"],
-            row["call_wall"],
-            row["put_wall"],
-            row["options_support"],
-            row["options_resistance"],
-            row["directional_bias"],
-            row["options_score"],
-            row["explanation"],
-        ]
-
-        for col, value in enumerate(values, start=1):
-            ws.cell(row_no, col, value).border = Border(bottom=THIN)
-
-        score = float(row["options_score"])
-
-        ws.cell(row_no, 18).fill = PatternFill(
-            "solid",
-            fgColor=(
-                GREEN
-                if score >= 60
-                else RED
-                if score <= 40
-                else YELLOW
-            ),
-        )
-
-        bias = str(row["directional_bias"])
-
-        ws.cell(row_no, 17).fill = PatternFill(
-            "solid",
-            fgColor=(
-                GREEN
-                if "BULLISH" in bias
-                else RED
-                if "BEARISH" in bias
-                else GREY
-            ),
-        )
-
-    widths = {
-        "A": 8,
-        "B": 16,
-        "C": 14,
-        "D": 14,
-        "E": 14,
-        "F": 14,
-        "G": 16,
-        "H": 16,
-        "I": 12,
-        "J": 12,
-        "K": 14,
-        "L": 14,
-        "M": 14,
-        "N": 14,
-        "O": 14,
-        "P": 14,
-        "Q": 18,
-        "R": 14,
-        "S": 60,
-        "T": 14,
-        "U": 14,
-        "V": 14,
+    return {
+        "strike": safe_float(row["strike_price"]),
+        "change": safe_float(row[change_column]),
     }
 
-    for column, width in widths.items():
-        ws.column_dimensions[column].width = width
 
-    wb.save(DASHBOARD)
+def concentration_metrics(
+    chain: pd.DataFrame,
+) -> dict[str, float | None]:
+    ce = numeric(
+        chain,
+        "ce_open_interest",
+    )
+
+    pe = numeric(
+        chain,
+        "pe_open_interest",
+    )
+
+    ce_total = float(ce.sum())
+    pe_total = float(pe.sum())
+
+    ce_top3 = float(ce.nlargest(3).sum())
+    pe_top3 = float(pe.nlargest(3).sum())
+
+    ce_concentration = (
+        ce_top3 / ce_total * 100
+        if ce_total > 0
+        else None
+    )
+
+    pe_concentration = (
+        pe_top3 / pe_total * 100
+        if pe_total > 0
+        else None
+    )
+
+    combined = None
+
+    values = [
+        value
+        for value in [
+            ce_concentration,
+            pe_concentration,
+        ]
+        if value is not None
+    ]
+
+    if values:
+        combined = sum(values) / len(values)
+
+    dispersion = (
+        100 - combined
+        if combined is not None
+        else None
+    )
+
+    return {
+        "call_top3_concentration_percent": ce_concentration,
+        "put_top3_concentration_percent": pe_concentration,
+        "combined_concentration_percent": combined,
+        "dispersion_percent": dispersion,
+    }
 
 
-# ============================================================
-# STATUS
-# ============================================================
+def detect_iv_columns(
+    chain: pd.DataFrame,
+) -> tuple[str | None, str | None]:
+    ce_candidates = [
+        "ce_iv",
+        "call_iv",
+        "ce_implied_volatility",
+    ]
+
+    pe_candidates = [
+        "pe_iv",
+        "put_iv",
+        "pe_implied_volatility",
+    ]
+
+    ce_column = next(
+        (
+            column
+            for column in ce_candidates
+            if column in chain.columns
+        ),
+        None,
+    )
+
+    pe_column = next(
+        (
+            column
+            for column in pe_candidates
+            if column in chain.columns
+        ),
+        None,
+    )
+
+    return ce_column, pe_column
+
+
+def iv_hv_metrics(
+    chain: pd.DataFrame,
+    atm: float,
+) -> dict[str, Any]:
+    ce_column, pe_column = detect_iv_columns(
+        chain
+    )
+
+    hv_candidates = [
+        "historical_volatility",
+        "hv",
+        "realised_volatility",
+    ]
+
+    hv_column = next(
+        (
+            column
+            for column in hv_candidates
+            if column in chain.columns
+        ),
+        None,
+    )
+
+    result = {
+        "atm_call_iv": None,
+        "atm_put_iv": None,
+        "atm_average_iv": None,
+        "weighted_iv": None,
+        "historical_volatility": None,
+        "iv_hv_spread": None,
+        "iv_skew": None,
+        "iv_regime": "NO IV DATA",
+    }
+
+    if not ce_column and not pe_column:
+        return result
+
+    work = chain.copy()
+
+    work["strike_price"] = pd.to_numeric(
+        work["strike_price"],
+        errors="coerce",
+    )
+
+    nearest_index = (
+        work["strike_price"]
+        .sub(atm)
+        .abs()
+        .idxmin()
+    )
+
+    atm_row = work.loc[
+        nearest_index
+    ]
+
+    call_iv = (
+        safe_float(atm_row.get(ce_column))
+        if ce_column
+        else None
+    )
+
+    put_iv = (
+        safe_float(atm_row.get(pe_column))
+        if pe_column
+        else None
+    )
+
+    iv_values = [
+        value
+        for value in [
+            call_iv,
+            put_iv,
+        ]
+        if value is not None
+    ]
+
+    average_iv = (
+        sum(iv_values) / len(iv_values)
+        if iv_values
+        else None
+    )
+
+    weighted_values: list[float] = []
+
+    for column in [
+        ce_column,
+        pe_column,
+    ]:
+        if not column:
+            continue
+
+        values = pd.to_numeric(
+            work[column],
+            errors="coerce",
+        ).dropna()
+
+        weighted_values.extend(
+            values.tolist()
+        )
+
+    weighted_iv = (
+        sum(weighted_values) / len(weighted_values)
+        if weighted_values
+        else None
+    )
+
+    hv = None
+
+    if hv_column:
+        hv_values = pd.to_numeric(
+            work[hv_column],
+            errors="coerce",
+        ).dropna()
+
+        if not hv_values.empty:
+            hv = float(
+                hv_values.iloc[-1]
+            )
+
+    spread = (
+        average_iv - hv
+        if average_iv is not None
+        and hv is not None
+        else None
+    )
+
+    skew = (
+        put_iv - call_iv
+        if put_iv is not None
+        and call_iv is not None
+        else None
+    )
+
+    if spread is None:
+        regime = "IV AVAILABLE / HV MISSING"
+    elif spread >= 5:
+        regime = "IV EXPENSIVE"
+    elif spread <= -2:
+        regime = "IV CHEAP"
+    else:
+        regime = "IV FAIR"
+
+    result.update(
+        {
+            "atm_call_iv": call_iv,
+            "atm_put_iv": put_iv,
+            "atm_average_iv": average_iv,
+            "weighted_iv": weighted_iv,
+            "historical_volatility": hv,
+            "iv_hv_spread": spread,
+            "iv_skew": skew,
+            "iv_regime": regime,
+        }
+    )
+
+    return result
+
+
+def latest_previous_snapshot(
+    underlying: str,
+) -> pd.Series | None:
+    if not HISTORY_OUTPUT.exists():
+        return None
+
+    history = pd.read_csv(
+        HISTORY_OUTPUT,
+        low_memory=False,
+    )
+
+    if history.empty or "underlying" not in history.columns:
+        return None
+
+    rows = history[
+        history["underlying"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .eq(underlying.strip().upper())
+    ]
+
+    if rows.empty:
+        return None
+
+    return rows.iloc[-1]
+
+
+def modified_pcr(
+    oi_pcr: float | None,
+    change_pcr: float | None,
+    volume_pcr: float | None,
+    atm_pcr: float | None,
+) -> float | None:
+    weighted = [
+        (oi_pcr, 0.40),
+        (change_pcr, 0.30),
+        (volume_pcr, 0.20),
+        (atm_pcr, 0.10),
+    ]
+
+    available = [
+        (value, weight)
+        for value, weight in weighted
+        if value is not None
+    ]
+
+    if not available:
+        return None
+
+    total_weight = sum(
+        weight
+        for _, weight in available
+    )
+
+    return sum(
+        value * weight
+        for value, weight in available
+    ) / total_weight
+
+
+def weighted_pcr(
+    oi_pcr: float | None,
+    change_pcr: float | None,
+) -> float | None:
+    available = [
+        (oi_pcr, 0.60),
+        (change_pcr, 0.40),
+    ]
+
+    valid = [
+        item
+        for item in available
+        if item[0] is not None
+    ]
+
+    if not valid:
+        return None
+
+    total_weight = sum(
+        weight
+        for _, weight in valid
+    )
+
+    return sum(
+        value * weight
+        for value, weight in valid
+    ) / total_weight
+
+
+def score_probabilities(
+    current: dict[str, Any],
+    previous: pd.Series | None,
+    futures: pd.Series | None,
+) -> dict[str, Any]:
+    bullish = 20.0
+    bearish = 20.0
+    continuation = 35.0
+    reasons: list[str] = []
+
+    spot = safe_float(
+        current.get("spot_price")
+    )
+
+    modified = safe_float(
+        current.get("modified_pcr")
+    )
+
+    oi_pcr = safe_float(
+        current.get("oi_pcr")
+    )
+
+    iv_spread = safe_float(
+        current.get("iv_hv_spread")
+    )
+
+    put_wall = safe_float(
+        current.get("positional_put_wall")
+    )
+
+    call_wall = safe_float(
+        current.get("positional_call_wall")
+    )
+
+    fresh_put = safe_float(
+        current.get("fresh_put_wall")
+    )
+
+    fresh_call = safe_float(
+        current.get("fresh_call_wall")
+    )
+
+    if modified is not None:
+        if modified <= 0.70:
+            bearish += 15
+            reasons.append(
+                "Modified PCR shows call-side dominance"
+            )
+
+        elif modified >= 1.30:
+            bullish += 15
+            reasons.append(
+                "Modified PCR shows put-side dominance"
+            )
+
+    if oi_pcr is not None:
+        if oi_pcr <= 0.65:
+            bullish += 8
+            bearish += 8
+            reasons.append(
+                "Extreme low PCR raises reversal risk"
+            )
+
+        elif oi_pcr >= 1.50:
+            bullish += 8
+            bearish += 8
+            reasons.append(
+                "Extreme high PCR raises reversal risk"
+            )
+
+    if spot is not None and put_wall is not None:
+        distance = abs(
+            spot - put_wall
+        )
+
+        if distance <= max(100, spot * 0.003):
+            bullish += 12
+            reasons.append(
+                "Price is close to positional put wall"
+            )
+
+    if spot is not None and call_wall is not None:
+        distance = abs(
+            call_wall - spot
+        )
+
+        if distance <= max(100, spot * 0.003):
+            bearish += 12
+            reasons.append(
+                "Price is close to positional call wall"
+            )
+
+    if fresh_put is not None:
+        bullish += 7
+        reasons.append(
+            "Fresh put wall is present"
+        )
+
+    if fresh_call is not None:
+        bearish += 7
+        reasons.append(
+            "Fresh call wall is present"
+        )
+
+    if iv_spread is not None:
+        if iv_spread >= 5:
+            bullish += 5
+            bearish += 5
+            continuation -= 5
+            reasons.append(
+                "IV is materially above HV; volatility contraction risk"
+            )
+
+        elif iv_spread <= -2:
+            continuation += 8
+            reasons.append(
+                "IV is below HV; volatility expansion risk"
+            )
+
+    if futures is not None:
+        near_cycle = str(
+            futures.get(
+                "near_cycle",
+                "",
+            )
+        ).upper()
+
+        rollover = str(
+            futures.get(
+                "rollover_signal",
+                "",
+            )
+        ).upper()
+
+        if near_cycle == "SHORT COVERING":
+            bullish += 12
+            reasons.append(
+                "Near futures show short covering"
+            )
+
+        elif near_cycle == "LONG BUILDUP":
+            bullish += 10
+            continuation += 8
+            reasons.append(
+                "Near futures show long buildup"
+            )
+
+        elif near_cycle == "SHORT BUILDUP":
+            bearish += 10
+            continuation += 8
+            reasons.append(
+                "Near futures show short buildup"
+            )
+
+        elif near_cycle == "LONG UNWINDING":
+            bearish += 8
+            reasons.append(
+                "Near futures show long unwinding"
+            )
+
+        if "BULLISH" in rollover:
+            bullish += 8
+
+        if "BEARISH" in rollover:
+            bearish += 8
+
+    pcr_trend = "NO HISTORY"
+    wall_shift_signal = "NO HISTORY"
+    max_pain_shift = None
+
+    if previous is not None:
+        previous_modified = safe_float(
+            previous.get("modified_pcr")
+        )
+
+        if (
+            previous_modified is not None
+            and modified is not None
+        ):
+            change = modified - previous_modified
+
+            if change > 0.03:
+                pcr_trend = "RISING"
+                bullish += 10
+                reasons.append(
+                    "Modified PCR is rising"
+                )
+
+            elif change < -0.03:
+                pcr_trend = "FALLING"
+                bearish += 10
+                reasons.append(
+                    "Modified PCR is falling"
+                )
+
+            else:
+                pcr_trend = "FLAT"
+
+        previous_call_wall = safe_float(
+            previous.get("positional_call_wall")
+        )
+
+        previous_put_wall = safe_float(
+            previous.get("positional_put_wall")
+        )
+
+        call_shift = (
+            call_wall - previous_call_wall
+            if call_wall is not None
+            and previous_call_wall is not None
+            else None
+        )
+
+        put_shift = (
+            put_wall - previous_put_wall
+            if put_wall is not None
+            and previous_put_wall is not None
+            else None
+        )
+
+        if call_shift is not None and call_shift < 0:
+            bearish += 8
+            wall_shift_signal = "CALL WALL MOVING DOWN"
+
+        elif put_shift is not None and put_shift > 0:
+            bullish += 8
+            wall_shift_signal = "PUT WALL MOVING UP"
+
+        else:
+            wall_shift_signal = "STABLE / MIXED"
+
+        previous_max_pain = safe_float(
+            previous.get("max_pain")
+        )
+
+        current_max_pain = safe_float(
+            current.get("max_pain")
+        )
+
+        if (
+            previous_max_pain is not None
+            and current_max_pain is not None
+        ):
+            max_pain_shift = (
+                current_max_pain
+                - previous_max_pain
+            )
+
+            if max_pain_shift > 0:
+                bullish += 5
+
+            elif max_pain_shift < 0:
+                bearish += 5
+
+    bullish = min(
+        95.0,
+        max(5.0, bullish),
+    )
+
+    bearish = min(
+        95.0,
+        max(5.0, bearish),
+    )
+
+    continuation = min(
+        95.0,
+        max(5.0, continuation),
+    )
+
+    if bullish >= bearish + 12:
+        reversal_signal = "BULLISH REVERSAL WATCH"
+
+    elif bearish >= bullish + 12:
+        reversal_signal = "BEARISH REVERSAL WATCH"
+
+    else:
+        reversal_signal = "NO CLEAR REVERSAL"
+
+    return {
+        "bullish_reversal_probability": round(
+            bullish,
+            1,
+        ),
+        "bearish_reversal_probability": round(
+            bearish,
+            1,
+        ),
+        "continuation_probability": round(
+            continuation,
+            1,
+        ),
+        "reversal_signal": reversal_signal,
+        "pcr_trend": pcr_trend,
+        "wall_shift_signal": wall_shift_signal,
+        "max_pain_shift": max_pain_shift,
+        "reason_1": reasons[0] if len(reasons) > 0 else "",
+        "reason_2": reasons[1] if len(reasons) > 1 else "",
+        "reason_3": reasons[2] if len(reasons) > 2 else "",
+        "reason_4": reasons[3] if len(reasons) > 3 else "",
+        "reason_5": reasons[4] if len(reasons) > 4 else "",
+    }
+
+
+def calculate(
+    underlying: str,
+    atm_strikes: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    chain, summary, futures = load_inputs(
+        underlying
+    )
+
+    atm = safe_float(
+        summary.get("atm_strike")
+    )
+
+    spot = safe_float(
+        summary.get("spot_price")
+    )
+
+    if atm is None:
+        raise RuntimeError(
+            "ATM strike is missing from option summary."
+        )
+
+    ce_oi = numeric(
+        chain,
+        "ce_open_interest",
+    )
+
+    pe_oi = numeric(
+        chain,
+        "pe_open_interest",
+    )
+
+    ce_change = numeric(
+        chain,
+        "ce_oi_change",
+    )
+
+    pe_change = numeric(
+        chain,
+        "pe_oi_change",
+    )
+
+    ce_volume = numeric(
+        chain,
+        "ce_volume",
+    )
+
+    pe_volume = numeric(
+        chain,
+        "pe_volume",
+    )
+
+    oi_pcr = ratio(
+        float(pe_oi.sum()),
+        float(ce_oi.sum()),
+    )
+
+    change_pcr = ratio(
+        sum_positive(pe_change),
+        sum_positive(ce_change),
+    )
+
+    volume_pcr = ratio(
+        float(pe_volume.sum()),
+        float(ce_volume.sum()),
+    )
+
+    atm_chain = nearest_strikes(
+        chain,
+        atm,
+        atm_strikes,
+    )
+
+    atm_pcr = ratio(
+        float(
+            numeric(
+                atm_chain,
+                "pe_open_interest",
+            ).sum()
+        ),
+        float(
+            numeric(
+                atm_chain,
+                "ce_open_interest",
+            ).sum()
+        ),
+    )
+
+    modified = modified_pcr(
+        oi_pcr,
+        change_pcr,
+        volume_pcr,
+        atm_pcr,
+    )
+
+    weighted = weighted_pcr(
+        oi_pcr,
+        change_pcr,
+    )
+
+    call_walls = top_two_walls(
+        chain,
+        "ce_open_interest",
+    )
+
+    put_walls = top_two_walls(
+        chain,
+        "pe_open_interest",
+    )
+
+    fresh_call = fresh_wall(
+        chain,
+        "ce_oi_change",
+    )
+
+    fresh_put = fresh_wall(
+        chain,
+        "pe_oi_change",
+    )
+
+    concentration = concentration_metrics(
+        chain
+    )
+
+    iv_metrics = iv_hv_metrics(
+        chain,
+        atm,
+    )
+
+    max_pain = safe_float(
+        summary.get("max_pain")
+    )
+
+    pinning = None
+
+    if (
+        spot is not None
+        and max_pain is not None
+    ):
+        distance = abs(
+            spot - max_pain
+        )
+
+        reference = max(
+            abs(spot) * 0.01,
+            1,
+        )
+
+        pinning = max(
+            0.0,
+            100.0
+            * (
+                1
+                - min(
+                    distance / reference,
+                    1,
+                )
+            ),
+        )
+
+    result: dict[str, Any] = {
+        "generated_at": datetime.now().isoformat(
+            timespec="seconds"
+        ),
+        "underlying": underlying.strip().upper(),
+        "spot_price": spot,
+        "atm_strike": atm,
+        "expiry_date": summary.get(
+            "expiry_date"
+        ),
+        "oi_pcr": oi_pcr,
+        "change_in_oi_pcr": change_pcr,
+        "volume_pcr": volume_pcr,
+        "atm_zone_pcr": atm_pcr,
+        "weighted_pcr": weighted,
+        "modified_pcr": modified,
+        "positional_call_wall": call_walls[0]["strike"],
+        "positional_call_wall_oi": call_walls[0]["value"],
+        "secondary_call_wall": call_walls[1]["strike"],
+        "secondary_call_wall_oi": call_walls[1]["value"],
+        "fresh_call_wall": fresh_call["strike"],
+        "fresh_call_wall_oi_change": fresh_call["change"],
+        "positional_put_wall": put_walls[0]["strike"],
+        "positional_put_wall_oi": put_walls[0]["value"],
+        "secondary_put_wall": put_walls[1]["strike"],
+        "secondary_put_wall_oi": put_walls[1]["value"],
+        "fresh_put_wall": fresh_put["strike"],
+        "fresh_put_wall_oi_change": fresh_put["change"],
+        "max_pain": max_pain,
+        "distance_from_max_pain": (
+            spot - max_pain
+            if spot is not None
+            and max_pain is not None
+            else None
+        ),
+        "pinning_probability": pinning,
+    }
+
+    result.update(
+        concentration
+    )
+
+    result.update(
+        iv_metrics
+    )
+
+    previous = latest_previous_snapshot(
+        underlying
+    )
+
+    probabilities = score_probabilities(
+        result,
+        previous,
+        futures,
+    )
+
+    result.update(
+        probabilities
+    )
+
+    summary_frame = pd.DataFrame(
+        [result]
+    )
+
+    wall_rows = pd.DataFrame(
+        [
+            {
+                "wall_type": "POSITIONAL CALL",
+                "strike": call_walls[0]["strike"],
+                "value": call_walls[0]["value"],
+            },
+            {
+                "wall_type": "SECONDARY CALL",
+                "strike": call_walls[1]["strike"],
+                "value": call_walls[1]["value"],
+            },
+            {
+                "wall_type": "FRESH CALL",
+                "strike": fresh_call["strike"],
+                "value": fresh_call["change"],
+            },
+            {
+                "wall_type": "POSITIONAL PUT",
+                "strike": put_walls[0]["strike"],
+                "value": put_walls[0]["value"],
+            },
+            {
+                "wall_type": "SECONDARY PUT",
+                "strike": put_walls[1]["strike"],
+                "value": put_walls[1]["value"],
+            },
+            {
+                "wall_type": "FRESH PUT",
+                "strike": fresh_put["strike"],
+                "value": fresh_put["change"],
+            },
+        ]
+    )
+
+    wall_rows.insert(
+        0,
+        "underlying",
+        underlying.strip().upper(),
+    )
+
+    wall_rows.insert(
+        0,
+        "generated_at",
+        result["generated_at"],
+    )
+
+    return summary_frame, wall_rows
+
+
+def save_outputs(
+    summary: pd.DataFrame,
+    walls: pd.DataFrame,
+) -> None:
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    summary.to_csv(
+        SUMMARY_OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    walls.to_csv(
+        WALLS_OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    if HISTORY_OUTPUT.exists():
+        history = pd.read_csv(
+            HISTORY_OUTPUT,
+            low_memory=False,
+        )
+
+        history = pd.concat(
+            [
+                history,
+                summary,
+            ],
+            ignore_index=True,
+        )
+
+    else:
+        history = summary.copy()
+
+    history.to_csv(
+        HISTORY_OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    JSON_OUTPUT.write_text(
+        json.dumps(
+            {
+                "summary": summary.to_dict(
+                    orient="records"
+                ),
+                "walls": walls.to_dict(
+                    orient="records"
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+
+
+def show_results(
+    summary: pd.DataFrame,
+) -> None:
+    row = summary.iloc[0]
+
+    print("\nAQSD ADVANCED OPTIONS INTELLIGENCE")
+    print("=" * 92)
+    print(f"Underlying:              {row['underlying']}")
+    print(f"Spot:                    {row['spot_price']}")
+    print(f"ATM:                     {row['atm_strike']}")
+    print(f"OI PCR:                  {row['oi_pcr']}")
+    print(f"Change-in-OI PCR:        {row['change_in_oi_pcr']}")
+    print(f"Volume PCR:              {row['volume_pcr']}")
+    print(f"ATM-zone PCR:            {row['atm_zone_pcr']}")
+    print(f"Modified PCR:            {row['modified_pcr']}")
+    print("-" * 92)
+    print(f"Positional Call Wall:    {row['positional_call_wall']}")
+    print(f"Fresh Call Wall:         {row['fresh_call_wall']}")
+    print(f"Positional Put Wall:     {row['positional_put_wall']}")
+    print(f"Fresh Put Wall:          {row['fresh_put_wall']}")
+    print(f"Max Pain:                {row['max_pain']}")
+    print(f"Pinning Probability:     {row['pinning_probability']}")
+    print("-" * 92)
+    print(f"IV Regime:               {row['iv_regime']}")
+    print(f"PCR Trend:               {row['pcr_trend']}")
+    print(f"Wall Shift:              {row['wall_shift_signal']}")
+    print(f"Reversal Signal:         {row['reversal_signal']}")
+    print(
+        f"Bullish Reversal Prob.:  "
+        f"{row['bullish_reversal_probability']}%"
+    )
+    print(
+        f"Bearish Reversal Prob.:  "
+        f"{row['bearish_reversal_probability']}%"
+    )
+    print(
+        f"Continuation Prob.:      "
+        f"{row['continuation_probability']}%"
+    )
+    print("=" * 92)
+    print(f"Summary CSV:             {SUMMARY_OUTPUT}")
+    print(f"History CSV:             {HISTORY_OUTPUT}")
+    print(f"Walls CSV:               {WALLS_OUTPUT}")
+    print(f"JSON:                    {JSON_OUTPUT}")
+
 
 def show_status() -> None:
-    setup_options_schema()
+    print("\nAQSD ADVANCED OPTIONS INTELLIGENCE STATUS")
+    print("=" * 78)
+    print("Version: 1.0")
 
-    with connect() as connection:
-        chain_row = connection.execute(
-            """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(DISTINCT nse_symbol) AS symbols,
-                MIN(trade_date) AS first_date,
-                MAX(trade_date) AS latest_date
-            FROM options_chain
-            """
-        ).fetchone()
+    for label, path in [
+        ("Option chain", OPTION_CHAIN_FILE),
+        ("Option summary", OPTION_SUMMARY_FILE),
+        ("Futures analytics", FUTURES_FILE),
+    ]:
+        print(
+            f"{label:<20}: "
+            f"{'FOUND' if path.exists() else 'MISSING'}"
+        )
 
-        intel_row = connection.execute(
-            """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(DISTINCT nse_symbol) AS symbols,
-                MAX(trade_date) AS latest_date
-            FROM options_intelligence
-            """
-        ).fetchone()
+    print(f"Output folder: {OUTPUT_DIR}")
+    print("IV/HV calculation: CONDITIONAL ON SOURCE COLUMNS")
+    print("Order placement: DISABLED")
+    print("AQSD database writes: DISABLED")
+    print("=" * 78)
 
-    print("\nAQSD OPTIONS INTELLIGENCE STATUS")
-    print("=" * 72)
-    print(f"Stored option rows:       {chain_row['total'] or 0}")
-    print(f"Option symbols covered:   {chain_row['symbols'] or 0}")
-    print(f"First chain date:         {chain_row['first_date'] or 'No data'}")
-    print(f"Latest chain date:        {chain_row['latest_date'] or 'No data'}")
-    print("-" * 72)
-    print(f"Intelligence records:     {intel_row['total'] or 0}")
-    print(f"Intelligence symbols:     {intel_row['symbols'] or 0}")
-    print(f"Latest intelligence date: {intel_row['latest_date'] or 'No data'}")
-    print("=" * 72)
-
-
-# ============================================================
-# CLI
-# ============================================================
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="AQSD Options OI and PCR Intelligence Engine."
+        description="AQSD Advanced Options Intelligence Engine."
     )
 
     parser.add_argument(
-        "--setup",
+        "--run",
         action="store_true",
-        help="Create options intelligence tables.",
-    )
-
-    parser.add_argument(
-        "--import-csv",
-        type=Path,
-        help="Import structured options-chain CSV data.",
-    )
-
-    parser.add_argument(
-        "--source",
-        default="Manual CSV",
-        help="Data-source label.",
-    )
-
-    parser.add_argument(
-        "--analyse",
-        action="store_true",
-        help="Calculate latest options intelligence.",
-    )
-
-    parser.add_argument(
-        "--report",
-        action="store_true",
-        help="Create the Options Intelligence Excel report.",
     )
 
     parser.add_argument(
         "--status",
         action="store_true",
-        help="Show options intelligence status.",
+    )
+
+    parser.add_argument(
+        "--underlying",
+        help="Underlying such as BANKNIFTY, NIFTY or RELIANCE.",
+    )
+
+    parser.add_argument(
+        "--atm-strikes",
+        type=int,
+        default=5,
+        help="Strikes on each side of ATM for ATM-zone PCR. Default 5.",
     )
 
     return parser.parse_args()
@@ -1130,39 +1420,34 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_arguments()
-    setup_options_schema()
 
-    if args.setup:
-        print("AQSD Options Intelligence schema is ready.")
+    if args.status:
+        show_status()
         return
 
-    if args.import_csv:
-        inserted, duplicates = import_csv(
-            args.import_csv,
-            args.source,
+    if not args.underlying:
+        raise SystemExit(
+            "Please provide --underlying, for example:\n"
+            "python aqsd_options_intelligence.py "
+            "--run --underlying BANKNIFTY"
         )
 
-        print("\nAQSD OPTIONS IMPORT")
-        print("=" * 72)
-        print(f"Inserted:   {inserted}")
-        print(f"Duplicates: {duplicates}")
-        return
+    summary, walls = calculate(
+        args.underlying,
+        max(
+            1,
+            args.atm_strikes,
+        ),
+    )
 
-    if args.analyse:
-        frame = analyse_options()
+    save_outputs(
+        summary,
+        walls,
+    )
 
-        if frame.empty:
-            print("No options intelligence available.")
-        else:
-            print(frame.to_string(index=False))
-        return
-
-    if args.report:
-        write_report()
-        print(f"Options Intelligence report created:\n{DASHBOARD}")
-        return
-
-    show_status()
+    show_results(
+        summary
+    )
 
 
 if __name__ == "__main__":
