@@ -1,0 +1,23 @@
+﻿file_name,source_path,size_bytes,matched_patterns,scanned_at
+aqsd_global_intelligence.py,C:\Users\megha\AQSD\Scripts\aqsd_global_intelligence.py,24785,import yfinance; yf.download,2026-07-16T22:13:19
+aqsd_incremental_updater.py,C:\Users\megha\AQSD\Scripts\aqsd_incremental_updater.py,14932,import yfinance; yf.download,2026-07-16T22:13:19
+aqsd_price_cache.py,C:\Users\megha\AQSD\Scripts\aqsd_price_cache.py,18867,import yfinance; yf.download,2026-07-16T22:13:19
+aqsd_symbol_resolver.py,C:\Users\megha\AQSD\Scripts\aqsd_symbol_resolver.py,27082,import yfinance; yf.download,2026-07-16T22:13:19
+aqsd_yahoo_legacy_organizer.py,C:\Users\megha\AQSD\Scripts\aqsd_yahoo_legacy_organizer.py,3631,import yfinance; from yfinance; yf.download; yf.Ticker; query1.finance.yahoo; query2.finance.yahoo,2026-07-16T22:13:19
+backtest_engine.py,C:\Users\megha\AQSD\Scripts\backtest_engine.py,12617,import yfinance; yf.download,2026-07-16T22:13:19
+batch_backtest.py,C:\Users\megha\AQSD\Scripts\batch_backtest.py,16123,import yfinance; yf.download,2026-07-16T22:13:19
+live_watchlist.py,C:\Users\megha\AQSD\Scripts\live_watchlist.py,14433,import yfinance; yf.download,2026-07-16T22:13:19
+market_pulse.py,C:\Users\megha\AQSD\Scripts\market_pulse.py,8288,import yfinance; yf.download,2026-07-16T22:13:19
+market_structure_engine.py,C:\Users\megha\AQSD\Scripts\market_structure_engine.py,12399,import yfinance; yf.download,2026-07-16T22:13:19
+multi_scan.py,C:\Users\megha\AQSD\Scripts\multi_scan.py,761,import yfinance; yf.download,2026-07-16T22:13:19
+pivot_cpr_engine.py,C:\Users\megha\AQSD\Scripts\pivot_cpr_engine.py,21419,import yfinance; yf.download,2026-07-16T22:13:19
+portfolio_live_assistant.py,C:\Users\megha\AQSD\Scripts\portfolio_live_assistant.py,14428,import yfinance; yf.download,2026-07-16T22:13:19
+portfolio_manager.py,C:\Users\megha\AQSD\Scripts\portfolio_manager.py,10923,import yfinance; yf.download,2026-07-16T22:13:19
+portfolio_update.py,C:\Users\megha\AQSD\Scripts\portfolio_update.py,7419,import yfinance; yf.download,2026-07-16T22:13:19
+relative_strength_engine.py,C:\Users\megha\AQSD\Scripts\relative_strength_engine.py,17958,import yfinance; yf.download,2026-07-16T22:13:19
+scanner.py,C:\Users\megha\AQSD\Scripts\scanner.py,21798,import yfinance; yf.download,2026-07-16T22:13:19
+scanner_v3_1.py,C:\Users\megha\AQSD\Scripts\scanner_v3_1.py,20042,import yfinance; yf.download,2026-07-16T22:13:19
+sector_rotation_engine.py,C:\Users\megha\AQSD\Scripts\sector_rotation_engine.py,2300,import yfinance; yf.download,2026-07-16T22:13:19
+strategy_optimizer.py,C:\Users\megha\AQSD\Scripts\strategy_optimizer.py,14792,import yfinance; yf.download,2026-07-16T22:13:19
+test_download.py,C:\Users\megha\AQSD\Scripts\test_download.py,150,import yfinance; yf.download,2026-07-16T22:13:19
+trend_intelligence_engine.py,C:\Users\megha\AQSD\Scripts\trend_intelligence_engine.py,16523,import yfinance; yf.download,2026-07-16T22:13:19
