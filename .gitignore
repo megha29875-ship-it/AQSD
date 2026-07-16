@@ -78,3 +78,7 @@ __pycache__/
 
 # Temporary Excel files
 ~$*.xlsxss
+
+Data/fyers_config.env
+
+.venv-fyers/
