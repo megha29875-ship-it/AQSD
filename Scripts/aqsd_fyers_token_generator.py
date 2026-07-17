@@ -1,173 +1,210 @@
 """
-AQSD FYERS TOKEN GENERATOR
-Version: 1.0
-
-Creates a FYERS login URL and exchanges the returned auth_code
-for an access token.
-
-Keep App ID, Secret ID, auth code and access token private.
+AQSD FYERS Secure Token Generator v2.0
 """
+from __future__ import annotations
 
+import argparse
+import json
+import os
+import webbrowser
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 from fyers_apiv3 import fyersModel
 
+BASE = Path(__file__).resolve().parent.parent
+DATA = BASE / "Data"
+LOGS = BASE / "Logs"
+CONFIG = DATA / "fyers_config.env"
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_FILE = BASE_DIR / "Data" / "fyers_config.env"
 
-
-def load_config():
-    config = {}
-
-    if not CONFIG_FILE.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found:\n{CONFIG_FILE}"
-        )
-
-    for raw_line in CONFIG_FILE.read_text(
-        encoding="utf-8"
-    ).splitlines():
-
-        line = raw_line.strip()
-
-        if not line:
+def read_env(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
             continue
-
-        if line.startswith("#"):
-            continue
-
-        if "=" not in line:
-            continue
-
         key, value = line.split("=", 1)
-        config[key.strip()] = value.strip()
-
-    return config
-
-
-def update_access_token(token):
-
-    lines = CONFIG_FILE.read_text(
-        encoding="utf-8"
-    ).splitlines()
-
-    updated = []
-    found = False
-
-    for line in lines:
-
-        if line.startswith("ACCESS_TOKEN="):
-            updated.append(f"ACCESS_TOKEN={token}")
-            found = True
-        else:
-            updated.append(line)
-
-    if not found:
-        updated.append(f"ACCESS_TOKEN={token}")
-
-    CONFIG_FILE.write_text(
-        "\n".join(updated) + "\n",
-        encoding="utf-8"
-    )
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
 
 
-def extract_auth_code(text):
-
-    value = text.strip()
-
-    if not value:
-        raise ValueError("Nothing entered.")
-
-    if "auth_code=" not in value:
-        return value
-
-    parsed = urlparse(value)
-    query = parse_qs(parsed.query)
-
-    codes = query.get("auth_code")
-
-    if not codes:
-        raise ValueError("auth_code not found.")
-
-    return codes[0]
+def first(values: dict[str, str], *names: str) -> str:
+    for name in names:
+        value = values.get(name) or os.getenv(name)
+        if value:
+            return value.strip()
+    return ""
 
 
-def main():
-
-    config = load_config()
-
-    required = [
-        "CLIENT_ID",
-        "SECRET_KEY",
-        "REDIRECT_URI"
+def save_env(path: Path, original: dict[str, str], updates: dict[str, str]) -> None:
+    merged = original.copy()
+    merged.update(updates)
+    order = [
+        "FYERS_CLIENT_ID",
+        "FYERS_SECRET_KEY",
+        "FYERS_REDIRECT_URI",
+        "FYERS_ACCESS_TOKEN",
+        "FYERS_REFRESH_TOKEN",
     ]
+    lines: list[str] = []
+    written: set[str] = set()
+    for key in order:
+        if key in merged:
+            lines.append(f"{key}={merged[key]}")
+            written.add(key)
+    for key, value in merged.items():
+        if key not in written:
+            lines.append(f"{key}={value}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    missing = [
-        key
-        for key in required
-        if not config.get(key)
-    ]
 
+def credentials() -> tuple[dict[str, str], str, str, str]:
+    config = read_env(CONFIG)
+    client_id = first(config, "FYERS_CLIENT_ID", "CLIENT_ID", "APP_ID")
+    secret_key = first(config, "FYERS_SECRET_KEY", "SECRET_KEY", "APP_SECRET")
+    redirect_uri = first(config, "FYERS_REDIRECT_URI", "REDIRECT_URI")
+
+    missing = []
+    if not client_id:
+        missing.append("FYERS_CLIENT_ID")
+    if not secret_key:
+        missing.append("FYERS_SECRET_KEY")
+    if not redirect_uri:
+        missing.append("FYERS_REDIRECT_URI")
     if missing:
-
-        print(
-            "\nMissing values:\n"
-            + "\n".join(missing)
+        raise SystemExit(
+            "Missing config values: " + ", ".join(missing) + f"\nEdit: {CONFIG}"
         )
-        return
+    return config, client_id, secret_key, redirect_uri
+
+
+def extract_auth_code(full_url: str) -> str:
+    query = parse_qs(urlparse(full_url.strip()).query)
+    code = query.get("auth_code", [None])[0] or query.get("code", [None])[0]
+    if not code:
+        raise SystemExit("Could not extract auth_code from the redirected URL.")
+    return code
+
+
+def verify(client_id: str, token: str) -> tuple[bool, str]:
+    LOGS.mkdir(parents=True, exist_ok=True)
+    fyers = fyersModel.FyersModel(
+        client_id=client_id,
+        token=token,
+        is_async=False,
+        log_path=str(LOGS),
+    )
+    response = fyers.quotes({"symbols": "NSE:NIFTYBANK-INDEX"})
+    if not isinstance(response, dict):
+        return False, "Unexpected response"
+    if response.get("s") != "ok":
+        return False, str(response.get("message", "Verification failed"))
+    if not response.get("d"):
+        return False, "No BANKNIFTY quote returned"
+    return True, "BANKNIFTY quote received"
+
+
+def show_status() -> None:
+    config = read_env(CONFIG)
+    print("\nAQSD FYERS TOKEN STATUS")
+    print("=" * 68)
+    print(f"Config file:   {CONFIG}")
+    print(f"Config exists: {'YES' if CONFIG.exists() else 'NO'}")
+    print(f"Client ID:     {'FOUND' if first(config, 'FYERS_CLIENT_ID', 'CLIENT_ID', 'APP_ID') else 'MISSING'}")
+    print(f"Secret key:    {'FOUND' if first(config, 'FYERS_SECRET_KEY', 'SECRET_KEY', 'APP_SECRET') else 'MISSING'}")
+    print(f"Redirect URI:  {'FOUND' if first(config, 'FYERS_REDIRECT_URI', 'REDIRECT_URI') else 'MISSING'}")
+    print(f"Access token:  {'SAVED' if first(config, 'FYERS_ACCESS_TOKEN', 'ACCESS_TOKEN') else 'MISSING'}")
+    print("=" * 68)
+
+
+def run() -> None:
+    config, client_id, secret_key, redirect_uri = credentials()
 
     session = fyersModel.SessionModel(
-        client_id=config["CLIENT_ID"],
-        secret_key=config["SECRET_KEY"],
-        redirect_uri=config["REDIRECT_URI"],
+        client_id=client_id,
+        secret_key=secret_key,
+        redirect_uri=redirect_uri,
         response_type="code",
         grant_type="authorization_code",
     )
 
     login_url = session.generate_authcode()
 
-    print("\n")
-    print("=" * 70)
-    print("AQSD FYERS TOKEN GENERATOR")
-    print("=" * 70)
+    print("\n" + "=" * 72)
+    print("AQSD FYERS SECURE TOKEN GENERATOR")
+    print("=" * 72)
+    print("Opening FYERS login page in your browser...")
 
-    print("\nOpen this URL in Chrome:\n")
-    print(login_url)
+    opened = False
+    try:
+        opened = webbrowser.open(login_url)
+    except Exception:
+        opened = False
 
-    print("\nAfter login you will be redirected.")
-    print("The browser may show:")
-    print("This site can't be reached")
-    print("This is NORMAL.")
+    if not opened:
+        print("\nOpen this URL in Chrome:")
+        print(login_url)
 
-    value = input(
-        "\nPaste the FULL redirected URL here:\n"
-    )
+    print("\nAfter login, the browser may show 'This site can't be reached'.")
+    print("That is normal. Copy the FULL URL from the browser address bar.")
+    redirected_url = input("\nPaste the FULL redirected URL here:\n").strip()
 
-    auth_code = extract_auth_code(value)
-
+    auth_code = extract_auth_code(redirected_url)
     session.set_token(auth_code)
-
     response = session.generate_token()
 
-    print("\n")
-    print(response)
+    if not isinstance(response, dict) or response.get("s") != "ok":
+        code = response.get("code", "UNKNOWN") if isinstance(response, dict) else "UNKNOWN"
+        message = response.get("message", "Token generation failed") if isinstance(response, dict) else "Unexpected response"
+        raise SystemExit(f"Token generation failed. Code={code}; Message={message}")
 
-    if response.get("s") != "ok":
-        print("\nToken generation failed.")
-        return
+    access_token = str(response.get("access_token", "")).strip()
+    refresh_token = str(response.get("refresh_token", "")).strip()
+    if not access_token:
+        raise SystemExit("FYERS did not return an access token.")
 
-    token = response.get("access_token")
+    updates = {
+        "FYERS_CLIENT_ID": client_id,
+        "FYERS_SECRET_KEY": secret_key,
+        "FYERS_REDIRECT_URI": redirect_uri,
+        "FYERS_ACCESS_TOKEN": access_token,
+    }
+    if refresh_token:
+        updates["FYERS_REFRESH_TOKEN"] = refresh_token
 
-    update_access_token(token)
+    save_env(CONFIG, config, updates)
 
-    print("\n")
-    print("=" * 70)
-    print("ACCESS TOKEN GENERATED SUCCESSFULLY")
-    print("=" * 70)
-    print("Saved into:")
-    print(CONFIG_FILE)
+    print("\nToken saved. Verifying with BANKNIFTY quote...")
+    ok, message = verify(client_id, access_token)
+
+    print("\n" + "=" * 72)
+    if ok:
+        print("ACCESS TOKEN GENERATED AND VERIFIED SUCCESSFULLY")
+        print(f"Verification: {message}")
+        print(f"Saved into:  {CONFIG}")
+        print("Security: Access and refresh tokens were not displayed.")
+    else:
+        print("ACCESS TOKEN GENERATED, BUT VERIFICATION FAILED")
+        print(f"Reason: {message}")
+        print(f"Saved into: {CONFIG}")
+        raise SystemExit(1)
+    print("=" * 72)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="AQSD FYERS Secure Token Generator")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--status", action="store_true")
+    args = parser.parse_args()
+
+    if args.status:
+        show_status()
+    else:
+        run()
 
 
 if __name__ == "__main__":
