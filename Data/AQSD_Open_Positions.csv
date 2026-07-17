@@ -1,0 +1,2 @@
+﻿symbol,underlying,sector,instrument_type,direction,quantity,lot_size,entry_price,current_price,stop_loss,target_price,margin_used,opened_at,status
+BANKNIFTY,BANKNIFTY,INDEX,FUTURE,LONG,0,1,0,0,0,0,0,,CLOSED

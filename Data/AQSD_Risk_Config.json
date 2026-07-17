@@ -1,0 +1,8 @@
+{
+  "capital": 1000000,
+  "max_risk_per_trade_percent": 1.0,
+  "max_daily_loss_percent": 3.0,
+  "max_open_positions": 5,
+  "slippage_percent": 0.05,
+  "brokerage_per_order": 20
+}
