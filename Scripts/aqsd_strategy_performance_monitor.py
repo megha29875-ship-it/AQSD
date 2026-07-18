@@ -713,7 +713,10 @@ def show(
     print(f"Net P/L:                {row['net_pnl']}")
     print(f"Ending Equity:          {row['ending_equity']}")
     print(f"Profit Factor:          {row['profit_factor']}")
-    print(f"Expectancy:             {row['expectancy_percent']}%")
+    print(
+    f"Expectancy:             "
+    f"{row.get('expectancy_percent', row.get('expectancy', 0.0))}%"
+)
     print(f"Maximum Drawdown:       {row['max_drawdown_percent']}%")
     print(f"Sharpe Ratio:           {row['sharpe_ratio']}")
     print("-" * 84)
