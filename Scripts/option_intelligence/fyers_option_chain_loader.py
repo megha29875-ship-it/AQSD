@@ -37,10 +37,8 @@ from dotenv import load_dotenv
 from fyers_apiv3 import fyersModel
 
 from Scripts.option_intelligence.option_chain_loader import (
-    OptionChainData,
     load_option_chain,
 )
-
 
 # ============================================================
 # CONFIGURATION
