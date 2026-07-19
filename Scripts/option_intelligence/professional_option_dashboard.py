@@ -164,6 +164,115 @@ def first_available(
     return default
 
 
+def find_section(
+    data: dict[str, Any],
+    section_name: str,
+) -> dict[str, Any]:
+    """
+    Find a named dictionary section inside nested JSON.
+    """
+
+    target = section_name.strip().lower()
+
+    def search(
+        value: Any,
+    ) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if (
+                    str(key).strip().lower() == target
+                    and isinstance(item, dict)
+                ):
+                    return item
+
+            for item in value.values():
+                found = search(item)
+
+                if found is not None:
+                    return found
+
+        elif isinstance(value, list):
+            for item in value:
+                found = search(item)
+
+                if found is not None:
+                    return found
+
+        return None
+
+    return search(data) or {}
+
+
+def find_market_snapshot(
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Find the dictionary containing the main market snapshot.
+    """
+
+    best_match: dict[str, Any] = {}
+    best_score = -1
+
+    def search(
+        value: Any,
+    ) -> None:
+        nonlocal best_match
+        nonlocal best_score
+
+        if isinstance(value, dict):
+            keys = {
+                str(key).strip().lower()
+                for key in value.keys()
+            }
+
+            score = 0
+
+            if "spot_price" in keys:
+                score += 5
+
+            if "atm_strike" in keys:
+                score += 4
+
+            if "strike_step" in keys:
+                score += 3
+
+            if "underlying" in keys:
+                score += 2
+
+            if "symbol" in keys:
+                score += 2
+
+            if score > best_score:
+                best_score = score
+                best_match = value
+
+            for item in value.values():
+                search(item)
+
+        elif isinstance(value, list):
+            for item in value:
+                search(item)
+
+    search(data)
+
+    return best_match
+
+    """
+    Return the first available value from alternative key names.
+    """
+
+    for key in keys:
+        value = recursive_find(
+            data,
+            key,
+        )
+
+        if value is not None:
+            return value
+
+    return default
+
+
 def format_number(
     value: Any,
     decimals: int = 2,
@@ -412,9 +521,566 @@ class ProfessionalOptionDashboard:
         self.build_interface()
         self.load_existing_output()
 
+    def start_live_refresh(
+        self,
+    ) -> None:
+        """
+        Start automatic dashboard refresh.
+        """
+
+        self.root.after(
+            30000,
+            self.refresh_live_data,
+        )
+
+    def refresh_live_data(
+        self,
+    ) -> None:
+        """
+        Refresh dashboard from the latest Decision JSON.
+        """
+
+        try:
+            self.load_existing_output()
+
+        finally:
+            self.start_live_refresh()
+
     # --------------------------------------------------------
     # GENERAL LAYOUT
     # --------------------------------------------------------
+
+    def update_dashboard(
+        self,
+        data: dict[str, Any],
+    ) -> None:
+        """
+        Update all dashboard cards from the live Decision JSON.
+        """
+
+        snapshot = find_market_snapshot(data)
+        decision = find_section(data, "decision")
+        probabilities = find_section(data, "probabilities")
+        analytics = find_section(data, "supporting_analytics")
+
+        self.update_decision_cards(
+            decision=decision,
+            probabilities=probabilities,
+        )
+
+        self.update_positioning_cards(
+            snapshot=snapshot,
+            analytics=analytics,
+            data=data,
+        )
+
+        self.update_level_cards(
+            decision=decision,
+            analytics=analytics,
+        )
+
+        self.update_volatility_cards(
+            analytics=analytics,
+            data=data,
+        )
+
+        timestamp = first_available(
+            data,
+            "timestamp",
+            default="N/A",
+        )
+
+        self.updated_variable.set(
+            f"Last update: {timestamp}"
+        )
+
+        self.status_variable.set(
+            f"Loaded: {DECISION_JSON_FILE}"
+        )
+
+    def update_decision_cards(
+        self,
+        decision: dict[str, Any],
+        probabilities: dict[str, Any],
+    ) -> None:
+        """
+        Update final decision and probability cards.
+        """
+
+        final_decision = decision.get(
+            "final_decision",
+            "WAIT",
+        )
+
+        directional_bias = decision.get(
+            "decision_bias",
+            "NEUTRAL",
+        )
+
+        confidence = decision.get(
+            "confidence_score"
+        )
+
+        grade = decision.get(
+            "trade_grade",
+            "N/A",
+        )
+
+        quality = decision.get(
+            "trade_quality",
+            "N/A",
+        )
+
+        market_regime = decision.get(
+            "market_regime",
+            "N/A",
+        )
+
+        risk_level = decision.get(
+            "risk_level",
+            "N/A",
+        )
+
+        bullish = probabilities.get(
+            "bullish"
+        )
+
+        bearish = probabilities.get(
+            "bearish"
+        )
+
+        continuation = probabilities.get(
+            "continuation"
+        )
+
+        reversal = probabilities.get(
+            "reversal"
+        )
+
+        self.set_card(
+            "final_decision",
+            final_decision,
+            signal_colour(
+                final_decision
+            ),
+        )
+
+        self.set_card(
+            "directional_bias",
+            directional_bias,
+            signal_colour(
+                directional_bias
+            ),
+        )
+
+        self.set_card(
+            "confidence_score",
+            format_number(
+                confidence,
+                suffix="%",
+            ),
+        )
+
+        self.set_card(
+            "trade_grade",
+            f"{grade} / {quality}",
+        )
+
+        self.set_card(
+            "market_regime",
+            market_regime,
+            signal_colour(
+                market_regime
+            ),
+        )
+
+        self.set_card(
+            "risk_level",
+            risk_level,
+            signal_colour(
+                risk_level
+            ),
+        )
+
+        self.set_card(
+            "probability_pair",
+            (
+                f"{format_number(bullish, 1)}% / "
+                f"{format_number(bearish, 1)}%"
+            ),
+        )
+
+        self.set_card(
+            "continuation_pair",
+            (
+                f"{format_number(continuation, 1)}% / "
+                f"{format_number(reversal, 1)}%"
+            ),
+        )
+
+    def update_positioning_cards(
+        self,
+        snapshot: dict[str, Any],
+        analytics: dict[str, Any],
+        data: dict[str, Any],
+    ) -> None:
+        """
+        Update spot, PCR and Max Pain cards.
+        """
+
+        spot_price = snapshot.get(
+            "spot_price"
+        )
+
+        atm_strike = snapshot.get(
+            "atm_strike"
+        )
+
+        oi_pcr = analytics.get(
+            "oi_pcr"
+        )
+
+        change_oi_pcr = analytics.get(
+            "change_oi_pcr"
+        )
+
+        modified_pcr = analytics.get(
+            "modified_pcr"
+        )
+
+        pcr_trend = analytics.get(
+            "pcr_trend",
+            "N/A",
+        )
+
+        max_pain = analytics.get(
+            "max_pain_strike"
+        )
+
+        pinning_probability = first_available(
+            data,
+            "pinning_probability",
+        )
+
+        self.set_card(
+            "spot_price",
+            format_number(
+                spot_price
+            ),
+        )
+
+        self.set_card(
+            "atm_strike",
+            format_number(
+                atm_strike,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "oi_pcr",
+            format_ratio(
+                oi_pcr
+            ),
+        )
+
+        self.set_card(
+            "change_oi_pcr",
+            format_ratio(
+                change_oi_pcr
+            ),
+        )
+
+        self.set_card(
+            "modified_pcr",
+            format_ratio(
+                modified_pcr
+            ),
+        )
+
+        self.set_card(
+            "pcr_trend",
+            pcr_trend,
+            signal_colour(
+                pcr_trend
+            ),
+        )
+
+        self.set_card(
+            "max_pain_strike",
+            format_number(
+                max_pain,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "pinning_probability",
+            format_number(
+                pinning_probability,
+                suffix="%",
+            ),
+        )
+
+    def update_level_cards(
+        self,
+        decision: dict[str, Any],
+        analytics: dict[str, Any],
+    ) -> None:
+        """
+        Update wall, entry, stop and target cards.
+        """
+
+        call_wall = analytics.get(
+            "call_wall"
+        )
+
+        put_wall = analytics.get(
+            "put_wall"
+        )
+
+        entry_low = decision.get(
+            "entry_low"
+        )
+
+        entry_high = decision.get(
+            "entry_high"
+        )
+
+        stop_loss = decision.get(
+            "stop_loss"
+        )
+
+        target_one = decision.get(
+            "target_one"
+        )
+
+        target_two = decision.get(
+            "target_two"
+        )
+
+        risk_reward_one = decision.get(
+            "risk_reward_one"
+        )
+
+        risk_reward_two = decision.get(
+            "risk_reward_two"
+        )
+
+        if (
+            entry_low is None
+            or entry_high is None
+        ):
+            entry_zone = "N/A"
+
+        else:
+            entry_zone = (
+                f"{format_number(entry_low, 0)} - "
+                f"{format_number(entry_high, 0)}"
+            )
+
+        self.set_card(
+            "call_wall",
+            format_number(
+                call_wall,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "put_wall",
+            format_number(
+                put_wall,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "entry_zone",
+            entry_zone,
+        )
+
+        self.set_card(
+            "stop_loss",
+            format_number(
+                stop_loss,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "target_one",
+            format_number(
+                target_one,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "target_two",
+            format_number(
+                target_two,
+                0,
+            ),
+        )
+
+        self.set_card(
+            "risk_reward_one",
+            (
+                "N/A"
+                if risk_reward_one is None
+                else (
+                    "1 : "
+                    + format_number(
+                        risk_reward_one
+                    )
+                )
+            ),
+        )
+
+        self.set_card(
+            "risk_reward_two",
+            (
+                "N/A"
+                if risk_reward_two is None
+                else (
+                    "1 : "
+                    + format_number(
+                        risk_reward_two
+                    )
+                )
+            ),
+        )
+
+    def update_volatility_cards(
+        self,
+        analytics: dict[str, Any],
+        data: dict[str, Any],
+    ) -> None:
+        """
+        Update volatility and wall-watch cards.
+        """
+
+        atm_iv = analytics.get(
+            "atm_iv"
+        )
+
+        historical_volatility = analytics.get(
+            "historical_volatility"
+        )
+
+        iv_rank = analytics.get(
+            "iv_rank"
+        )
+
+        iv_percentile = first_available(
+            data,
+            "iv_percentile",
+        )
+
+        volatility_regime = first_available(
+            data,
+            "volatility_regime",
+            default="N/A",
+        )
+
+        wall_shift = first_available(
+            data,
+            "combined_wall_shift",
+            default="N/A",
+        )
+
+        breakout_watch = first_available(
+            data,
+            "breakout_watch",
+            default="N/A",
+        )
+
+        breakdown_watch = first_available(
+            data,
+            "breakdown_watch",
+            default="N/A",
+        )
+
+        self.set_card(
+            "atm_iv",
+            format_number(
+                atm_iv,
+                suffix="%",
+            ),
+        )
+
+        self.set_card(
+            "historical_volatility",
+            format_number(
+                historical_volatility,
+                suffix="%",
+            ),
+        )
+
+        self.set_card(
+            "iv_rank",
+            format_number(
+                iv_rank,
+                suffix="%",
+            ),
+        )
+
+        self.set_card(
+            "iv_percentile",
+            format_number(
+                iv_percentile,
+                suffix="%",
+            ),
+        )
+
+        self.set_card(
+            "volatility_regime",
+            volatility_regime,
+            signal_colour(
+                volatility_regime
+            ),
+        )
+
+        self.set_card(
+            "wall_shift",
+            wall_shift,
+            signal_colour(
+                wall_shift
+            ),
+        )
+
+        self.set_card(
+            "breakout_watch",
+            breakout_watch,
+        )
+
+        self.set_card(
+            "breakdown_watch",
+            breakdown_watch,
+        )
+
+    def load_existing_output(
+        self,
+    ) -> None:
+        """
+        Load the most recently generated Decision JSON.
+        """
+
+        try:
+            data = load_json_file(
+                DECISION_JSON_FILE
+            )
+
+            self.update_dashboard(
+                data
+            )
+
+        except Exception as error:
+            self.status_variable.set(
+                f"No live result loaded: {error}"
+            )
+
 
     def build_interface(
         self,
@@ -1074,457 +1740,59 @@ class ProfessionalOptionDashboard:
                 accent,
             )
 
-    def update_dashboard(
-        self,
-        data: dict[str, Any],
-    ) -> None:
-        """
-        Update every dashboard metric from JSON data.
-        """
-
-        final_decision = first_available(
-            data,
-            "final_decision",
-            default="WAIT",
-        )
-
-        directional_bias = first_available(
-            data,
-            "decision_bias",
-            "directional_bias",
-            default="NEUTRAL",
-        )
-
-        confidence = first_available(
-            data,
-            "confidence_score",
-        )
-
-        grade = first_available(
-            data,
-            "trade_grade",
-            default="N/A",
-        )
-
-        quality = first_available(
-            data,
-            "trade_quality",
-            default="N/A",
-        )
-
-        market_regime = first_available(
-            data,
-            "market_regime",
-            default="N/A",
-        )
-
-        risk_level = first_available(
-            data,
-            "risk_level",
-            default="N/A",
-        )
-
-        bullish = first_available(
-            data,
-            "bullish_probability",
-            "bullish",
-        )
-
-        bearish = first_available(
-            data,
-            "bearish_probability",
-            "bearish",
-        )
-
-        continuation = first_available(
-            data,
-            "continuation_probability",
-            "continuation",
-        )
-
-        reversal = first_available(
-            data,
-            "reversal_probability",
-            "reversal",
-        )
-
-        self.set_card(
-            "final_decision",
-            final_decision,
-            signal_colour(
-                final_decision
-            ),
-        )
-
-        self.set_card(
-            "directional_bias",
-            directional_bias,
-            signal_colour(
-                directional_bias
-            ),
-        )
-
-        self.set_card(
-            "confidence_score",
-            format_number(
-                confidence,
-                suffix="%",
-            ),
-        )
-
-        self.set_card(
-            "trade_grade",
-            f"{grade} / {quality}",
-        )
-
-        self.set_card(
-            "market_regime",
-            market_regime,
-            signal_colour(
-                market_regime
-            ),
-        )
-
-        self.set_card(
-            "risk_level",
-            risk_level,
-            signal_colour(
-                risk_level
-            ),
-        )
-
-        self.set_card(
-            "probability_pair",
-            (
-                f"{format_number(bullish, 1)}% / "
-                f"{format_number(bearish, 1)}%"
-            ),
-        )
-
-        self.set_card(
-            "continuation_pair",
-            (
-                f"{format_number(continuation, 1)}% / "
-                f"{format_number(reversal, 1)}%"
-            ),
-        )
-
-        self.set_card(
-            "spot_price",
-            format_number(
-                first_available(
-                    data,
-                    "spot_price",
-                )
-            ),
-        )
-
-        self.set_card(
-            "atm_strike",
-            format_number(
-                first_available(
-                    data,
-                    "atm_strike",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "oi_pcr",
-            format_ratio(
-                first_available(
-                    data,
-                    "oi_pcr",
-                )
-            ),
-        )
-
-        self.set_card(
-            "change_oi_pcr",
-            format_ratio(
-                first_available(
-                    data,
-                    "change_oi_pcr",
-                )
-            ),
-        )
-
-        self.set_card(
-            "modified_pcr",
-            format_ratio(
-                first_available(
-                    data,
-                    "modified_pcr",
-                )
-            ),
-        )
-
-        pcr_trend = first_available(
-            data,
-            "pcr_trend",
-            default="N/A",
-        )
-
-        self.set_card(
-            "pcr_trend",
-            pcr_trend,
-            signal_colour(
-                pcr_trend
-            ),
-        )
-
-        self.set_card(
-            "max_pain_strike",
-            format_number(
-                first_available(
-                    data,
-                    "max_pain_strike",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "pinning_probability",
-            format_number(
-                first_available(
-                    data,
-                    "pinning_probability",
-                ),
-                suffix="%",
-            ),
-        )
-
-        self.set_card(
-            "call_wall",
-            format_number(
-                first_available(
-                    data,
-                    "positional_call_wall",
-                    "call_wall",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "put_wall",
-            format_number(
-                first_available(
-                    data,
-                    "positional_put_wall",
-                    "put_wall",
-                ),
-                0,
-            ),
-        )
-
-        entry_low = first_available(
-            data,
-            "entry_low",
-        )
-
-        entry_high = first_available(
-            data,
-            "entry_high",
-        )
-
-        self.set_card(
-            "entry_zone",
-            (
-                f"{format_number(entry_low, 0)} - "
-                f"{format_number(entry_high, 0)}"
-            ),
-        )
-
-        self.set_card(
-            "stop_loss",
-            format_number(
-                first_available(
-                    data,
-                    "stop_loss",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "target_one",
-            format_number(
-                first_available(
-                    data,
-                    "target_one",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "target_two",
-            format_number(
-                first_available(
-                    data,
-                    "target_two",
-                ),
-                0,
-            ),
-        )
-
-        self.set_card(
-            "risk_reward_one",
-            (
-                "1 : "
-                + format_number(
-                    first_available(
-                        data,
-                        "risk_reward_one",
-                    ),
-                )
-            ),
-        )
-
-        self.set_card(
-            "risk_reward_two",
-            (
-                "1 : "
-                + format_number(
-                    first_available(
-                        data,
-                        "risk_reward_two",
-                    ),
-                )
-            ),
-        )
-
-        self.set_card(
-            "atm_iv",
-            format_number(
-                first_available(
-                    data,
-                    "atm_iv",
-                ),
-                suffix="%",
-            ),
-        )
-
-        self.set_card(
-            "historical_volatility",
-            format_number(
-                first_available(
-                    data,
-                    "historical_volatility",
-                ),
-                suffix="%",
-            ),
-        )
-
-        self.set_card(
-            "iv_rank",
-            format_number(
-                first_available(
-                    data,
-                    "iv_rank",
-                ),
-                suffix="%",
-            ),
-        )
-
-        self.set_card(
-            "iv_percentile",
-            format_number(
-                first_available(
-                    data,
-                    "iv_percentile",
-                ),
-                suffix="%",
-            ),
-        )
-
-        volatility_regime = first_available(
-            data,
-            "volatility_regime",
-            default="N/A",
-        )
-
-        self.set_card(
-            "volatility_regime",
-            volatility_regime,
-            signal_colour(
-                volatility_regime
-            ),
-        )
-
-        wall_shift = first_available(
-            data,
-            "combined_wall_shift",
-            default="N/A",
-        )
-
-        self.set_card(
-            "wall_shift",
-            wall_shift,
-            signal_colour(
-                wall_shift
-            ),
-        )
-
-        self.set_card(
-            "breakout_watch",
-            first_available(
-                data,
-                "breakout_watch",
-                default="N/A",
-            ),
-        )
-
-        self.set_card(
-            "breakdown_watch",
-            first_available(
-                data,
-                "breakdown_watch",
-                default="N/A",
-            ),
-        )
-
-        timestamp = first_available(
-            data,
-            "timestamp",
-            default="N/A",
-        )
-
-        self.updated_variable.set(
-            f"Last update: {timestamp}"
-        )
-
-        self.status_variable.set(
-            f"Loaded: {DECISION_JSON_FILE}"
-        )
-
-    # --------------------------------------------------------
-    # LOAD EXISTING OUTPUT
     # --------------------------------------------------------
 
-    def load_existing_output(
-        self,
-    ) -> None:
-        """
-        Load the most recently generated Decision JSON.
-        """
+def update_dashboard(
+    self,
+    data: dict[str, Any],
+) -> None:
+    """
+    Update every dashboard section.
+    """
 
-        try:
-            data = load_json_file(
-                DECISION_JSON_FILE
-            )
+    snapshot = find_market_snapshot(data)
 
-            self.update_dashboard(
-                data
-            )
+    decision = find_section(
+        data,
+        "decision",
+    )
 
-        except Exception as error:
-            self.status_variable.set(
-                f"No live result loaded: {error}"
-            )
+    positioning = find_section(
+        data,
+        "positioning",
+    )
+
+    levels = find_section(
+        data,
+        "levels",
+    )
+
+    volatility = find_section(
+        data,
+        "volatility",
+    )
+
+    self.update_header(
+        snapshot
+    )
+
+    self.update_decision_cards(
+        decision
+    )
+
+    self.update_position_cards(
+        positioning
+    )
+
+    self.update_level_cards(
+        levels
+    )
+
+    self.update_volatility_cards(
+        volatility,
+        data,
+    )
+
 
     # --------------------------------------------------------
     # RUN LIVE PIPELINE
