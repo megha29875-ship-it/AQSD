@@ -28,7 +28,7 @@ ENV_FILE = BASE_DIR / ".env"
 
 SYMBOL = "NSE:NIFTYBANK-INDEX"
 RESOLUTION = "D"
-LOOKBACK_DAYS = 450
+LOOKBACK_DAYS = 365
 
 
 def read_environment_value(*names: str) -> str:
@@ -103,19 +103,20 @@ def download_fyers_history(
         timestamp, open, high, low, close, volume
     """
 
-    range_to = date.today()
+    range_to = date.today() - timedelta(days=1)
     range_from = range_to - timedelta(days=LOOKBACK_DAYS)
 
     request_data = {
         "symbol": symbol,
-        "resolution": RESOLUTION,
+        "resolution": "1D",
         "date_format": "1",
         "range_from": range_from.isoformat(),
         "range_to": range_to.isoformat(),
-        "cont_flag": "1",
+        "cont_flag": "0",
     }
 
     response = fyers.history(data=request_data)
+
 
     if not isinstance(response, dict):
         raise RuntimeError(
