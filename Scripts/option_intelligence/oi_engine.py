@@ -26,22 +26,29 @@ Outputs:
 """
 
 from __future__ import annotations
-
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from Scripts.option_intelligence.common import (
+    safe_divide,
+)
+
+from Scripts.option_intelligence.validators import (
+    validate_option_chain,
+)
+
+from Scripts.option_intelligence.exporters import (
+    EngineResult,
+    ExportMetadata,
+    export_results,
+    print_export_report,
+)
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = BASE_DIR / "Output"
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
@@ -179,7 +186,7 @@ def resolve_column(
     return None
 
 
-def safe_ratio(
+def safe_divide(
     numerator: float,
     denominator: float,
 ) -> float | None:
@@ -191,7 +198,6 @@ def safe_ratio(
         return None
 
     return float(numerator / denominator)
-
 
 def safe_percent(
     numerator: float,
@@ -205,7 +211,6 @@ def safe_percent(
         return 0.0
 
     return float((numerator / denominator) * 100.0)
-
 
 def standardise_option_type(value: Any) -> str:
     """
@@ -235,20 +240,6 @@ def standardise_option_type(value: Any) -> str:
         return "PE"
 
     return text
-
-
-def numeric_series(
-    dataframe: pd.DataFrame,
-    column: str,
-) -> pd.Series:
-    """
-    Convert a DataFrame column to numeric values.
-    """
-
-    return pd.to_numeric(
-        dataframe[column],
-        errors="coerce",
-    ).fillna(0.0)
 
 
 def strike_of_maximum(
@@ -589,7 +580,7 @@ def build_strike_oi_table(
     )
 
     strike_table["strike_oi_pcr"] = strike_table.apply(
-        lambda row: safe_ratio(
+        lambda row: safe_divide(
             float(row["put_oi"]),
             float(row["call_oi"]),
         ),
@@ -645,12 +636,12 @@ def analyze_open_interest(
         total_combined_oi,
     )
 
-    oi_pcr = safe_ratio(
+    oi_pcr = safe_divide(
         total_put_oi,
         total_call_oi,
     )
 
-    change_oi_pcr = safe_ratio(
+    change_oi_pcr = safe_divide(
         total_put_change_oi,
         total_call_change_oi,
     )
@@ -1012,10 +1003,9 @@ def create_sample_option_chain() -> pd.DataFrame:
         ]
     )
 
-
 def main() -> None:
     """
-    Run an independent sample test.
+    Run an independent sample test using the shared AQSD exporter.
     """
 
     sample_dataframe = create_sample_option_chain()
@@ -1026,17 +1016,29 @@ def main() -> None:
 
     print_oi_summary(result)
 
-    output_files = save_oi_outputs(
-        result=result,
-        strike_table=strike_table,
-        prefix="BANKNIFTY_SAMPLE",
+    metadata = ExportMetadata(
+        engine="OI",
+        underlying="BANKNIFTY_SAMPLE",
+        engine_version="1.0",
+        rows_processed=len(sample_dataframe),
+        status="SUCCESS",
+        source="AQSD Sample Option Chain",
+        notes="Independent oi_engine.py module test.",
     )
 
-    print("Files created:")
+    engine_result = EngineResult(
+        summary=result,
+        table=strike_table,
+        history=asdict(result),
+        metadata=metadata,
+    )
 
-    for name, path in output_files.items():
-        print(f"{name:<15}: {path}")
+    export_paths = export_results(
+        engine_result=engine_result,
+        base_filename="BANKNIFTY_SAMPLE_OI_Intelligence",
+    )
 
+    print_export_report(export_paths)
 
 if __name__ == "__main__":
     main()

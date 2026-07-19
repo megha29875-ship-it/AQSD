@@ -28,12 +28,25 @@ from pathlib import Path
 
 import pandas as pd
 
+from Scripts.option_intelligence.exporters import (
+    EngineResult,
+    ExportMetadata,
+    export_results,
+    print_export_report,
+)
+
 from Scripts.option_intelligence.option_chain_loader import (
     OptionChainData,
     get_atm_window,
     load_option_chain,
 )
 
+from Scripts.option_intelligence.exporters import (
+    EngineResult,
+    ExportMetadata,
+    export_results,
+    print_export_report,
+)
 
 # ============================================================
 # CONFIGURATION
@@ -746,10 +759,9 @@ def create_sample_option_chain() -> pd.DataFrame:
         ]
     )
 
-
 def main() -> None:
     """
-    Run an independent sample test.
+    Run an independent sample test using the shared AQSD exporter.
     """
 
     sample_dataframe = create_sample_option_chain()
@@ -766,16 +778,44 @@ def main() -> None:
 
     print_pcr_summary(result)
 
-    output_files = save_pcr_outputs(
-        result=result,
-        prefix="BANKNIFTY_SAMPLE",
+    metadata = ExportMetadata(
+        engine="PCR",
+        underlying="BANKNIFTY_SAMPLE",
+        engine_version="1.0",
+        rows_processed=len(sample_dataframe),
+        status="SUCCESS",
+        source="AQSD Sample Option Chain",
+        notes="Independent pcr_engine.py module test.",
     )
 
-    print("Files created:")
+    history_row = {
+        "timestamp": result.timestamp,
+        "spot_price": result.spot_price,
+        "atm_strike": result.atm_strike,
+        "oi_pcr": result.oi_pcr,
+        "change_oi_pcr": result.change_oi_pcr,
+        "volume_pcr": result.volume_pcr,
+        "modified_pcr": result.modified_pcr,
+        "atm_zone_pcr": result.atm_zone_pcr,
+        "pcr_trend": result.pcr_trend,
+        "pcr_bias": result.pcr_bias,
+        "reversal_watch": result.reversal_watch,
+    }
 
-    for name, path in output_files.items():
-        print(f"{name:<15}: {path}")
+    engine_result = EngineResult(
+        summary=result,
+        table=None,
+        history=history_row,
+        metadata=metadata,
+    )
 
+    export_paths = export_results(
+        engine_result=engine_result,
+        base_filename="BANKNIFTY_SAMPLE_PCR",
+        save_table=False,
+    )
+
+    print_export_report(export_paths)
 
 if __name__ == "__main__":
     main()
