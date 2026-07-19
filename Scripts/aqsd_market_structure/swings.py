@@ -3,11 +3,22 @@ AQSD
 Market Structure Engine
 
 Module: swings.py
-Version: 1.0
+Version: 1.1
 Author: AQSD
+
 Description:
-Detects swing highs, swing lows, and classifies
-market structure as HH, HL, LH, and LL.
+Detects swing highs and swing lows and classifies
+market structure as:
+
+- SH: Initial Swing High
+- SL: Initial Swing Low
+- HH: Higher High
+- HL: Higher Low
+- LH: Lower High
+- LL: Lower Low
+
+Equal highs and equal lows remain unclassified raw
+swing points because they are neither higher nor lower.
 """
 
 from __future__ import annotations
@@ -26,29 +37,63 @@ REQUIRED_COLUMNS = {"High", "Low"}
 
 def validate_price_data(df: pd.DataFrame) -> None:
     """
-    Validate the input DataFrame.
+    Validate market data required for swing detection.
 
     Args:
         df: OHLC market-data DataFrame.
 
     Raises:
-        TypeError: If the input is not a DataFrame.
-        ValueError: If required columns or rows are missing.
+        TypeError:
+            If the input is not a pandas DataFrame.
+
+        ValueError:
+            If the DataFrame is empty, required columns
+            are missing, or High/Low contain no usable
+            numeric values.
     """
 
     if not isinstance(df, pd.DataFrame):
-        raise TypeError("Input must be a pandas DataFrame.")
+        raise TypeError(
+            "Input must be a pandas DataFrame."
+        )
 
-    missing_columns = REQUIRED_COLUMNS.difference(df.columns)
+    if df.empty:
+        raise ValueError(
+            "Input DataFrame cannot be empty."
+        )
+
+    missing_columns = REQUIRED_COLUMNS.difference(
+        df.columns
+    )
 
     if missing_columns:
-        missing_text = ", ".join(sorted(missing_columns))
+        missing_text = ", ".join(
+            sorted(missing_columns)
+        )
+
         raise ValueError(
             f"Missing required columns: {missing_text}"
         )
 
-    if df.empty:
-        raise ValueError("Input DataFrame cannot be empty.")
+    numeric_high = pd.to_numeric(
+        df["High"],
+        errors="coerce",
+    )
+
+    numeric_low = pd.to_numeric(
+        df["Low"],
+        errors="coerce",
+    )
+
+    if numeric_high.dropna().empty:
+        raise ValueError(
+            "High column contains no valid numeric values."
+        )
+
+    if numeric_low.dropna().empty:
+        raise ValueError(
+            "Low column contains no valid numeric values."
+        )
 
 
 def _resolve_timestamp(
@@ -56,10 +101,18 @@ def _resolve_timestamp(
     index_position: int,
 ) -> datetime:
     """
-    Resolve a timestamp for a detected swing point.
+    Resolve the timestamp of a detected swing point.
 
-    Uses the DataFrame index when it is date-like.
-    Otherwise, it uses the current time.
+    The DataFrame index is used when it can be converted
+    to a valid date and time. Otherwise, the current time
+    is used as a fallback.
+
+    Args:
+        df: Market-data DataFrame.
+        index_position: Integer row position.
+
+    Returns:
+        Python datetime object.
     """
 
     index_value = df.index[index_position]
@@ -69,6 +122,18 @@ def _resolve_timestamp(
 
     if isinstance(index_value, datetime):
         return index_value
+
+    try:
+        converted_timestamp = pd.to_datetime(
+            index_value,
+            errors="raise",
+        )
+
+        if isinstance(converted_timestamp, pd.Timestamp):
+            return converted_timestamp.to_pydatetime()
+
+    except (TypeError, ValueError, OverflowError):
+        pass
 
     return datetime.now()
 
@@ -80,20 +145,34 @@ def detect_raw_swings(
     """
     Detect raw swing highs and swing lows.
 
-    A swing high is higher than all neighbouring highs
-    inside the configured swing window.
+    Swing High
+    ----------
+    The current High must be the unique highest High
+    within the configured left-and-right swing window.
 
-    A swing low is lower than all neighbouring lows
-    inside the configured swing window.
+    Swing Low
+    ---------
+    The current Low must be the unique lowest Low
+    within the configured left-and-right swing window.
+
+    A swing is confirmed only after the required number
+    of candles has formed to its right. This prevents
+    using an incomplete swing point.
 
     Args:
         df: OHLC market-data DataFrame.
-        config: Market Structure Engine configuration.
+        config: Market Structure configuration.
 
     Returns:
-        A tuple containing:
-            - list of swing highs
-            - list of swing lows
+        Tuple containing:
+
+        1. Raw swing-high list.
+        2. Raw swing-low list.
+
+    Raises:
+        ValueError:
+            If there are insufficient rows for the
+            configured swing window.
     """
 
     validate_price_data(df)
@@ -101,14 +180,16 @@ def detect_raw_swings(
 
     window = config.swing_window
 
-    if len(df) < (window * 2) + 1:
+    minimum_rows = (
+        window * 2
+    ) + 1
+
+    if len(df) < minimum_rows:
         raise ValueError(
             "Not enough rows to detect swings. "
-            f"Minimum required: {(window * 2) + 1}"
+            f"Minimum required: {minimum_rows}. "
+            f"Rows received: {len(df)}."
         )
-
-    highs: List[SwingPoint] = []
-    lows: List[SwingPoint] = []
 
     high_series = pd.to_numeric(
         df["High"],
@@ -120,35 +201,70 @@ def detect_raw_swings(
         errors="coerce",
     )
 
-    for position in range(window, len(df) - window):
+    swing_highs: List[SwingPoint] = []
+    swing_lows: List[SwingPoint] = []
+
+    first_position = window
+    final_position = len(df) - window
+
+    for position in range(
+        first_position,
+        final_position,
+    ):
         current_high = high_series.iloc[position]
         current_low = low_series.iloc[position]
 
-        if pd.isna(current_high) or pd.isna(current_low):
+        if (
+            pd.isna(current_high)
+            or pd.isna(current_low)
+        ):
             continue
 
+        start_position = position - window
+        end_position = position + window + 1
+
         neighbouring_highs = high_series.iloc[
-            position - window : position + window + 1
+            start_position:end_position
         ]
 
         neighbouring_lows = low_series.iloc[
-            position - window : position + window + 1
+            start_position:end_position
         ]
 
+        if (
+            neighbouring_highs.isna().any()
+            or neighbouring_lows.isna().any()
+        ):
+            continue
+
+        highest_value = neighbouring_highs.max()
+        lowest_value = neighbouring_lows.min()
+
+        highest_count = int(
+            (neighbouring_highs == highest_value).sum()
+        )
+
+        lowest_count = int(
+            (neighbouring_lows == lowest_value).sum()
+        )
+
         is_swing_high = (
-            current_high == neighbouring_highs.max()
-            and (neighbouring_highs == current_high).sum() == 1
+            current_high == highest_value
+            and highest_count == 1
         )
 
         is_swing_low = (
-            current_low == neighbouring_lows.min()
-            and (neighbouring_lows == current_low).sum() == 1
+            current_low == lowest_value
+            and lowest_count == 1
         )
 
-        timestamp = _resolve_timestamp(df, position)
+        timestamp = _resolve_timestamp(
+            df=df,
+            index_position=position,
+        )
 
         if is_swing_high:
-            highs.append(
+            swing_highs.append(
                 SwingPoint(
                     index=position,
                     timestamp=timestamp,
@@ -158,7 +274,7 @@ def detect_raw_swings(
             )
 
         if is_swing_low:
-            lows.append(
+            swing_lows.append(
                 SwingPoint(
                     index=position,
                     timestamp=timestamp,
@@ -167,35 +283,62 @@ def detect_raw_swings(
                 )
             )
 
-    return highs, lows
+    return swing_highs, swing_lows
 
 
 def classify_swing_highs(
     swing_highs: List[SwingPoint],
 ) -> List[SwingPoint]:
     """
-    Classify swing highs as HH or LH.
+    Classify swing highs as Higher High or Lower High.
 
-    The first swing high remains SH because there is no
-    previous swing high available for comparison.
+    Rules
+    -----
+    Current high > previous high:
+        HIGHER_HIGH
+
+    Current high < previous high:
+        LOWER_HIGH
+
+    Current high == previous high:
+        SWING_HIGH
+
+    The first detected high remains SWING_HIGH because
+    there is no earlier swing high for comparison.
+
+    Args:
+        swing_highs: Raw swing-high list.
+
+    Returns:
+        Classified swing-high list.
     """
 
     if not swing_highs:
         return []
 
-    classified = [swing_highs[0]]
+    ordered_highs = sorted(
+        swing_highs,
+        key=lambda swing: swing.index,
+    )
+
+    classified_highs: List[SwingPoint] = [
+        ordered_highs[0]
+    ]
 
     for previous, current in zip(
-        swing_highs,
-        swing_highs[1:],
+        ordered_highs,
+        ordered_highs[1:],
     ):
-        swing_type = (
-            SwingType.HIGHER_HIGH
-            if current.price > previous.price
-            else SwingType.LOWER_HIGH
-        )
+        if current.price > previous.price:
+            swing_type = SwingType.HIGHER_HIGH
 
-        classified.append(
+        elif current.price < previous.price:
+            swing_type = SwingType.LOWER_HIGH
+
+        else:
+            swing_type = SwingType.SWING_HIGH
+
+        classified_highs.append(
             SwingPoint(
                 index=current.index,
                 timestamp=current.timestamp,
@@ -204,35 +347,62 @@ def classify_swing_highs(
             )
         )
 
-    return classified
+    return classified_highs
 
 
 def classify_swing_lows(
     swing_lows: List[SwingPoint],
 ) -> List[SwingPoint]:
     """
-    Classify swing lows as HL or LL.
+    Classify swing lows as Higher Low or Lower Low.
 
-    The first swing low remains SL because there is no
-    previous swing low available for comparison.
+    Rules
+    -----
+    Current low > previous low:
+        HIGHER_LOW
+
+    Current low < previous low:
+        LOWER_LOW
+
+    Current low == previous low:
+        SWING_LOW
+
+    The first detected low remains SWING_LOW because
+    there is no earlier swing low for comparison.
+
+    Args:
+        swing_lows: Raw swing-low list.
+
+    Returns:
+        Classified swing-low list.
     """
 
     if not swing_lows:
         return []
 
-    classified = [swing_lows[0]]
+    ordered_lows = sorted(
+        swing_lows,
+        key=lambda swing: swing.index,
+    )
+
+    classified_lows: List[SwingPoint] = [
+        ordered_lows[0]
+    ]
 
     for previous, current in zip(
-        swing_lows,
-        swing_lows[1:],
+        ordered_lows,
+        ordered_lows[1:],
     ):
-        swing_type = (
-            SwingType.HIGHER_LOW
-            if current.price > previous.price
-            else SwingType.LOWER_LOW
-        )
+        if current.price > previous.price:
+            swing_type = SwingType.HIGHER_LOW
 
-        classified.append(
+        elif current.price < previous.price:
+            swing_type = SwingType.LOWER_LOW
+
+        else:
+            swing_type = SwingType.SWING_LOW
+
+        classified_lows.append(
             SwingPoint(
                 index=current.index,
                 timestamp=current.timestamp,
@@ -241,7 +411,7 @@ def classify_swing_lows(
             )
         )
 
-    return classified
+    return classified_lows
 
 
 def detect_and_classify_swings(
@@ -249,12 +419,17 @@ def detect_and_classify_swings(
     config: MarketStructureConfig = DEFAULT_CONFIG,
 ) -> Tuple[List[SwingPoint], List[SwingPoint]]:
     """
-    Detect and classify all swing highs and swing lows.
+    Detect and classify swing highs and swing lows.
+
+    Args:
+        df: OHLC market-data DataFrame.
+        config: Market Structure configuration.
 
     Returns:
-        A tuple containing:
-            - classified swing highs
-            - classified swing lows
+        Tuple containing:
+
+        1. Classified swing-high list.
+        2. Classified swing-low list.
     """
 
     raw_highs, raw_lows = detect_raw_swings(
@@ -262,8 +437,13 @@ def detect_and_classify_swings(
         config=config,
     )
 
-    classified_highs = classify_swing_highs(raw_highs)
-    classified_lows = classify_swing_lows(raw_lows)
+    classified_highs = classify_swing_highs(
+        raw_highs
+    )
+
+    classified_lows = classify_swing_lows(
+        raw_lows
+    )
 
     return classified_highs, classified_lows
 
@@ -272,13 +452,50 @@ def get_latest_swing(
     swings: List[SwingPoint],
 ) -> Optional[SwingPoint]:
     """
-    Return the latest swing point from a swing list.
+    Return the most recent swing point.
+
+    The function uses the swing index rather than
+    assuming the input list is already sorted.
+
+    Args:
+        swings: SwingPoint list.
+
+    Returns:
+        Latest SwingPoint, or None if the list is empty.
     """
 
     if not swings:
         return None
 
-    return swings[-1]
+    return max(
+        swings,
+        key=lambda swing: swing.index,
+    )
+
+
+def get_previous_swing(
+    swings: List[SwingPoint],
+) -> Optional[SwingPoint]:
+    """
+    Return the swing point immediately before the latest.
+
+    Args:
+        swings: SwingPoint list.
+
+    Returns:
+        Previous SwingPoint, or None when fewer than two
+        swing points are available.
+    """
+
+    if len(swings) < 2:
+        return None
+
+    ordered_swings = sorted(
+        swings,
+        key=lambda swing: swing.index,
+    )
+
+    return ordered_swings[-2]
 
 
 def has_latest_swing_type(
@@ -286,12 +503,57 @@ def has_latest_swing_type(
     swing_type: SwingType,
 ) -> bool:
     """
-    Check whether the latest swing matches a given type.
+    Check whether the latest swing has a specified type.
+
+    Args:
+        swings: SwingPoint list.
+        swing_type: SwingType to check.
+
+    Returns:
+        True when the latest swing matches the requested
+        type; otherwise False.
     """
 
-    latest = get_latest_swing(swings)
+    latest = get_latest_swing(
+        swings
+    )
 
     if latest is None:
         return False
 
     return latest.swing_type == swing_type
+
+
+def get_latest_structure_pair(
+    swing_highs: List[SwingPoint],
+    swing_lows: List[SwingPoint],
+) -> Tuple[
+    Optional[SwingPoint],
+    Optional[SwingPoint],
+]:
+    """
+    Return the latest classified swing high and swing low.
+
+    This helper will later be used by the Break of
+    Structure and Change of Character modules.
+
+    Args:
+        swing_highs: Classified swing-high list.
+        swing_lows: Classified swing-low list.
+
+    Returns:
+        Tuple containing:
+
+        1. Latest swing high.
+        2. Latest swing low.
+    """
+
+    latest_high = get_latest_swing(
+        swing_highs
+    )
+
+    latest_low = get_latest_swing(
+        swing_lows
+    )
+
+    return latest_high, latest_low
