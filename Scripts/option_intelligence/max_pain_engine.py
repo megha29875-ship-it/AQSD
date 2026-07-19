@@ -33,6 +33,12 @@ from Scripts.option_intelligence.option_chain_loader import (
     load_option_chain,
 )
 
+from Scripts.option_intelligence.exporters import (
+    EngineResult,
+    ExportMetadata,
+    export_results,
+    print_export_report,
+)
 
 # ============================================================
 # CONFIGURATION
@@ -890,10 +896,9 @@ def create_sample_option_chain() -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
-
 def main() -> None:
     """
-    Run an independent sample test.
+    Run an independent sample test using the shared AQSD exporter.
     """
 
     sample_dataframe = create_sample_option_chain()
@@ -931,17 +936,41 @@ def main() -> None:
 
     print()
 
-    output_files = save_max_pain_outputs(
-        result=result,
-        pain_table=pain_table,
-        prefix="BANKNIFTY_SAMPLE",
+    metadata = ExportMetadata(
+        engine="MAX_PAIN",
+        underlying="BANKNIFTY_SAMPLE",
+        engine_version="1.0",
+        rows_processed=len(sample_dataframe),
+        status="SUCCESS",
+        source="AQSD Sample Option Chain",
+        notes="Independent max_pain_engine.py module test.",
     )
 
-    print("Files created:")
+    history_row = {
+        "timestamp": result.timestamp,
+        "spot_price": result.spot_price,
+        "atm_strike": result.atm_strike,
+        "max_pain_strike": result.max_pain_strike,
+        "distance_from_spot": result.distance_from_spot,
+        "pinning_probability": result.pinning_probability,
+        "magnet_strength": result.magnet_strength,
+        "expiry_bias": result.expiry_bias,
+        "pain_shift": result.pain_shift,
+    }
 
-    for name, path in output_files.items():
-        print(f"{name:<18}: {path}")
+    engine_result = EngineResult(
+        summary=result,
+        table=pain_table,
+        history=history_row,
+        metadata=metadata,
+    )
 
+    export_paths = export_results(
+        engine_result=engine_result,
+        base_filename="BANKNIFTY_SAMPLE_MAXPAIN",
+    )
+
+    print_export_report(export_paths)
 
 if __name__ == "__main__":
     main()
