@@ -66,6 +66,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "change_in_oi": [
         "change_in_oi",
         "changeinoi",
+        "changeoi",
         "change in oi",
         "change_oi",
         "oi_change",
