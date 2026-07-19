@@ -34,6 +34,12 @@ from Scripts.option_intelligence.option_chain_loader import (
     load_option_chain,
 )
 
+from Scripts.option_intelligence.exporters import (
+    EngineResult,
+    ExportMetadata,
+    export_results,
+    print_export_report,
+)
 
 # ============================================================
 # CONFIGURATION
@@ -1241,10 +1247,9 @@ def create_sample_option_chain() -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
-
 def main() -> None:
     """
-    Run an independent sample test.
+    Run an independent sample test using the shared AQSD exporter.
     """
 
     sample_dataframe = create_sample_option_chain()
@@ -1283,16 +1288,41 @@ def main() -> None:
 
     print()
 
-    output_files = save_wall_outputs(
-        result=result,
-        wall_table=wall_table,
-        prefix="BANKNIFTY_SAMPLE",
+    metadata = ExportMetadata(
+        engine="WALL",
+        underlying="BANKNIFTY_SAMPLE",
+        engine_version="1.0",
+        rows_processed=len(sample_dataframe),
+        status="SUCCESS",
+        source="AQSD Sample Option Chain",
+        notes="Independent wall_engine.py module test.",
     )
 
-    print("Files created:")
+    history_row = {
+        "timestamp": result.timestamp,
+        "spot_price": result.spot_price,
+        "positional_call_wall": result.positional_call_wall,
+        "positional_put_wall": result.positional_put_wall,
+        "fresh_call_wall": result.fresh_call_wall,
+        "fresh_put_wall": result.fresh_put_wall,
+        "call_wall_shift": result.call_wall_shift,
+        "put_wall_shift": result.put_wall_shift,
+        "combined_wall_shift": result.combined_wall_shift,
+    }
 
-    for name, path in output_files.items():
-        print(f"{name:<18}: {path}")
+    engine_result = EngineResult(
+        summary=result,
+        table=wall_table,
+        history=history_row,
+        metadata=metadata,
+    )
+
+    export_paths = export_results(
+        engine_result=engine_result,
+        base_filename="BANKNIFTY_SAMPLE_WALL",
+    )
+
+    print_export_report(export_paths)
 
 
 if __name__ == "__main__":
