@@ -1742,57 +1742,6 @@ class ProfessionalOptionDashboard:
 
     # --------------------------------------------------------
 
-def update_dashboard(
-    self,
-    data: dict[str, Any],
-) -> None:
-    """
-    Update every dashboard section.
-    """
-
-    snapshot = find_market_snapshot(data)
-
-    decision = find_section(
-        data,
-        "decision",
-    )
-
-    positioning = find_section(
-        data,
-        "positioning",
-    )
-
-    levels = find_section(
-        data,
-        "levels",
-    )
-
-    volatility = find_section(
-        data,
-        "volatility",
-    )
-
-    self.update_header(
-        snapshot
-    )
-
-    self.update_decision_cards(
-        decision
-    )
-
-    self.update_position_cards(
-        positioning
-    )
-
-    self.update_level_cards(
-        levels
-    )
-
-    self.update_volatility_cards(
-        volatility,
-        data,
-    )
-
 
     # --------------------------------------------------------
     # RUN LIVE PIPELINE

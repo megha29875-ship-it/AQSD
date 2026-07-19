@@ -29,6 +29,12 @@ Important:
 
 from __future__ import annotations
 
+import os
+import json
+
+from dotenv import load_dotenv
+from fyers_apiv3 import fyersModel
+
 from pathlib import Path
 
 import pandas as pd
@@ -118,6 +124,189 @@ WALL_HISTORY_FILE = (
 # ============================================================
 # DECISION INPUT BUILDER
 # ============================================================
+
+def fetch_banknifty_spot_from_fyers() -> float:
+    """
+    Fetch the actual BANKNIFTY index LTP directly from FYERS.
+    """
+
+    load_dotenv()
+
+    client_id = (
+        os.getenv("FYERS_CLIENT_ID")
+        or os.getenv("FYERS_APP_ID")
+        or os.getenv("CLIENT_ID")
+    )
+
+    access_token = (
+        os.getenv("FYERS_ACCESS_TOKEN")
+        or os.getenv("ACCESS_TOKEN")
+    )
+
+    if not client_id:
+        raise RuntimeError(
+            "FYERS client ID was not found in the .env file."
+        )
+
+    if not access_token:
+        raise RuntimeError(
+            "FYERS access token was not found in the .env file."
+        )
+
+    fyers = fyersModel.FyersModel(
+        client_id=client_id,
+        token=access_token,
+        is_async=False,
+        log_path="",
+    )
+
+    response = fyers.quotes(
+        {
+            "symbols": "NSE:NIFTYBANK-INDEX",
+        }
+    )
+
+    if not isinstance(response, dict):
+        raise RuntimeError(
+            "Invalid FYERS quote response for BANKNIFTY."
+        )
+
+    quote_rows = response.get(
+        "d",
+        []
+    )
+
+    if not quote_rows:
+        raise RuntimeError(
+            f"FYERS returned no BANKNIFTY quote: {response}"
+        )
+
+    quote_values = quote_rows[0].get(
+        "v",
+        {}
+    )
+
+    spot_price = (
+        quote_values.get("lp")
+        or quote_values.get("ltp")
+        or quote_values.get("last_price")
+    )
+
+    try:
+        spot_price = float(
+            spot_price
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ) as error:
+        raise RuntimeError(
+            f"Invalid BANKNIFTY spot price in FYERS response: "
+            f"{response}"
+        ) from error
+
+    if spot_price <= 1000.0:
+        raise RuntimeError(
+            f"FYERS returned an invalid BANKNIFTY spot price: "
+            f"{spot_price}"
+        )
+
+    return spot_price
+
+def resolve_banknifty_spot_price(
+    live_result: object,
+    option_chain_data: object,
+) -> float:
+    """
+    Return the actual BANKNIFTY underlying price.
+
+    ATM strike is used only to validate candidates.
+    It is never returned as the spot price.
+    """
+
+    atm_strike = float(
+        getattr(
+            option_chain_data,
+            "atm_strike",
+            0.0,
+        )
+        or 0.0
+    )
+
+    possible_values = [
+        getattr(
+            live_result,
+            "spot_price",
+            None,
+        ),
+        getattr(
+            live_result,
+            "underlying_price",
+            None,
+        ),
+        getattr(
+            live_result,
+            "index_price",
+            None,
+        ),
+        getattr(
+            option_chain_data,
+            "spot_price",
+            None,
+        ),
+        getattr(
+            option_chain_data,
+            "underlying_price",
+            None,
+        ),
+        getattr(
+            option_chain_data,
+            "index_price",
+            None,
+        ),
+    ]
+
+    valid_candidates: list[float] = []
+
+    for value in possible_values:
+        try:
+            number = float(value)
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        if number <= 1000.0:
+            continue
+
+        if (
+            atm_strike > 1000.0
+            and abs(number - atm_strike) > 2000.0
+        ):
+            continue
+
+        valid_candidates.append(
+            number
+        )
+
+    if not valid_candidates:
+        raise RuntimeError(
+            "Actual BANKNIFTY spot price was not available. "
+            "ATM strike will not be used as a substitute."
+        )
+
+    if atm_strike > 1000.0:
+        return min(
+            valid_candidates,
+            key=lambda number: abs(
+                number - atm_strike
+            ),
+        )
+
+    return valid_candidates[0]
 
 def build_live_decision_inputs(
     spot_price: float,
@@ -427,6 +616,18 @@ def run_live_decision() -> None:
         live_result.raw_dataframe
     )
 
+    resolved_spot_price = (
+        fetch_banknifty_spot_from_fyers()
+    )
+
+    correct_atm_strike = (
+        round(
+            resolved_spot_price
+            / float(option_chain_data.strike_step)
+        )
+        * float(option_chain_data.strike_step)
+    )
+
     # --------------------------------------------------------
     # FETCH HISTORICAL DATA
     # --------------------------------------------------------
@@ -461,12 +662,12 @@ def run_live_decision() -> None:
     print()
     print(
         f"Spot Price           : "
-        f"{live_result.spot_price:,.2f}"
+        f"{resolved_spot_price:,.2f}"
     )
 
     print(
         f"ATM Strike           : "
-        f"{option_chain_data.atm_strike:,.2f}"
+        f"{correct_atm_strike:,.2f}"
     )
 
     print(
@@ -553,7 +754,7 @@ def run_live_decision() -> None:
 
     probability_inputs = (
         build_live_probability_inputs(
-            spot_price=live_result.spot_price,
+            spot_price=resolved_spot_price,
             oi_result=oi_result,
             pcr_result=pcr_result,
             max_pain_result=max_pain_result,
@@ -578,8 +779,8 @@ def run_live_decision() -> None:
     )
 
     decision_inputs = build_live_decision_inputs(
-        spot_price=live_result.spot_price,
-        atm_strike=option_chain_data.atm_strike,
+        spot_price=resolved_spot_price,
+        atm_strike=correct_atm_strike,
         strike_step=option_chain_data.strike_step,
         timestamp=option_chain_data.timestamp,
         probability_result=probability_result,
@@ -725,10 +926,10 @@ def run_live_decision() -> None:
             "symbol": FYERS_SYMBOL,
             "underlying": UNDERLYING,
             "spot_price": (
-                live_result.spot_price
+                resolved_spot_price
             ),
             "atm_strike": (
-                option_chain_data.atm_strike
+                correct_atm_strike
             ),
             "strike_step": (
                 option_chain_data.strike_step
