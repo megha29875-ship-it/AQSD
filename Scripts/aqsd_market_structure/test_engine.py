@@ -31,6 +31,11 @@ import pandas as pd
 from dotenv import load_dotenv
 from fyers_apiv3 import fyersModel
 
+from .market_regime import (
+    MarketRegimeResult,
+    analyze_market_regime,
+)
+
 from .confidence import (
     ConfidenceResult,
     calculate_confidence,
@@ -690,6 +695,102 @@ def print_choch_analysis(
     for item in choch_result.evidence:
         print(f"[OK] {item}")
 
+def print_market_regime_analysis(
+    regime_result: MarketRegimeResult,
+) -> None:
+    """
+    Print AQSD Market Regime Engine.
+    """
+
+    print_section_separator()
+    print("AQSD MARKET REGIME ENGINE")
+    print_section_separator()
+
+    print(
+        f"Market Regime      : "
+        f"{regime_result.market_regime}"
+    )
+
+    print(
+        f"Regime Score       : "
+        f"{regime_result.regime_score:.2f}/100"
+    )
+
+    print(
+        f"Directional Bias   : "
+        f"{regime_result.directional_bias}"
+    )
+
+    print(
+        f"Regime Strength    : "
+        f"{regime_result.regime_strength}"
+    )
+
+    print(
+        f"Trend State        : "
+        f"{regime_result.trend_state}"
+    )
+
+    print(
+        f"Structure State    : "
+        f"{regime_result.structure_state}"
+    )
+
+    print(
+        f"Break State        : "
+        f"{regime_result.break_state}"
+    )
+
+    print()
+
+    print(
+        f"Continuation Prob. : "
+        f"{regime_result.continuation_probability:.2f}%"
+    )
+
+    print(
+        f"Reversal Prob.     : "
+        f"{regime_result.reversal_probability:.2f}%"
+    )
+
+    print(
+        f"Range Probability  : "
+        f"{regime_result.range_probability:.2f}%"
+    )
+
+    print()
+
+    print(
+        f"Strategy           : "
+        f"{regime_result.strategy_environment}"
+    )
+
+    print(
+        f"Risk               : "
+        f"{regime_result.risk_state}"
+    )
+
+    print_section_separator()
+    print("REGIME SCORE BREAKDOWN")
+    print_section_separator()
+
+    for key, value in regime_result.score_breakdown.items():
+
+        print(
+            f"{key:<25}"
+            f"{value:>8.2f}"
+        )
+
+    print_section_separator()
+    print("REGIME EVIDENCE")
+    print_section_separator()
+
+    for item in regime_result.evidence:
+
+        print(
+            f"[OK] {item}"
+        )
+
 def print_confidence_analysis(
     confidence_result: ConfidenceResult,
 ) -> None:
@@ -869,6 +970,13 @@ def run_engine_analysis(
         choch_result=choch_result,
     )
 
+    regime_result = analyze_market_regime(
+        trend_result=trend_result,
+        confidence_result=confidence_result,
+        bos_result=bos_result,
+        choch_result=choch_result,
+    )
+
     print()
 
     print_market_data_summary(
@@ -900,6 +1008,10 @@ def run_engine_analysis(
 
     print_confidence_analysis(
         confidence_result=confidence_result,
+    )
+
+    print_market_regime_analysis(
+        regime_result=regime_result,
     )
 
     print_engine_summary(
