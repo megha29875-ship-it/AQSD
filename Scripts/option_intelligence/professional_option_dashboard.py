@@ -1880,16 +1880,72 @@ class ProfessionalOptionDashboard:
 
 def main() -> None:
     """
-    Launch the professional Option Intelligence dashboard.
+    Launch the professional Option Intelligence dashboard and ensure
+    that the window is visible in front of VS Code.
     """
 
     root = tk.Tk()
 
-    ProfessionalOptionDashboard(
-        root
-    )
+    try:
+        dashboard = ProfessionalOptionDashboard(
+            root
+        )
 
-    root.mainloop()
+        root.update_idletasks()
+        root.deiconify()
+
+        try:
+            root.state("zoomed")
+        except tk.TclError:
+            root.geometry(
+                f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+20+20"
+            )
+
+        root.lift()
+        root.attributes(
+            "-topmost",
+            True,
+        )
+        root.after(
+            1200,
+            lambda: root.attributes(
+                "-topmost",
+                False,
+            ),
+        )
+
+        root.focus_force()
+
+        # Keep a reference for the lifetime of the Tk application.
+        root.dashboard = dashboard
+
+        print(
+            "AQSD dashboard window opened successfully.",
+            flush=True,
+        )
+
+        root.mainloop()
+
+    except Exception as error:
+        print(
+            f"AQSD dashboard failed to open: {error}",
+            flush=True,
+        )
+
+        try:
+            messagebox.showerror(
+                "AQSD Dashboard Error",
+                str(error),
+            )
+        except tk.TclError:
+            pass
+
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+        raise
 
 
 if __name__ == "__main__":

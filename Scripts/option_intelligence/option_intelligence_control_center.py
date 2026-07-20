@@ -42,15 +42,30 @@ SCRIPTS_DIR = BASE_DIR / "Scripts"
 PACKAGE_DIR = SCRIPTS_DIR / "option_intelligence"
 OUTPUT_DIR = BASE_DIR / "Output"
 
-MASTER_MODULE = "Scripts.option_intelligence.live_option_intelligence_master"
+MASTER_MODULE = "Scripts.option_intelligence.live_option_intelligence_refresh"
 TOKEN_MODULE = "Scripts.option_intelligence.fyers_token_assistant"
 
 MODULES = {
-    "Dashboard": "Scripts.option_intelligence.live_dashboard_runner",
-    "Decision": "Scripts.option_intelligence.live_decision_runner",
-    "IV Surface": "Scripts.option_intelligence.live_iv_surface_runner",
-    "Volatility": "Scripts.option_intelligence.live_volatility_analytics_runner",
-    "Probability": "Scripts.option_intelligence.live_probability_v2_runner",
+    "Dashboard": (
+        "Scripts.option_intelligence."
+        "professional_option_dashboard"
+    ),
+    "Decision": (
+        "Scripts.option_intelligence."
+        "live_decision_runner"
+    ),
+    "IV Surface": (
+        "Scripts.option_intelligence."
+        "live_iv_surface_runner"
+    ),
+    "Volatility": (
+        "Scripts.option_intelligence."
+        "live_volatility_analytics_runner"
+    ),
+    "Probability": (
+        "Scripts.option_intelligence."
+        "live_probability_v2_runner"
+    ),
 }
 
 INTERVAL_OPTIONS = {
@@ -66,7 +81,7 @@ INTERVAL_OPTIONS = {
 # UI CONSTANTS
 # ============================================================
 
-WINDOW_TITLE = "AQSD — Option Intelligence Control Center v3.1"
+WINDOW_TITLE = "AQSD — Option Intelligence Control Center v3.2"
 WINDOW_SIZE = "1040x760"
 
 COLOR_BG = "#0F172A"
