@@ -31,6 +31,11 @@ import pandas as pd
 from dotenv import load_dotenv
 from fyers_apiv3 import fyersModel
 
+from .confidence import (
+    ConfidenceResult,
+    calculate_confidence,
+)
+
 from Scripts.aqsd_market_structure.detector import (
     BreakOfStructureResult,
     ChangeOfCharacterResult,
@@ -685,6 +690,97 @@ def print_choch_analysis(
     for item in choch_result.evidence:
         print(f"[OK] {item}")
 
+def print_confidence_analysis(
+    confidence_result: ConfidenceResult,
+) -> None:
+    """
+    Print the complete AQSD Confidence Engine result.
+    """
+
+    print_section_separator()
+    print("AQSD CONFIDENCE ENGINE")
+    print_section_separator()
+
+    print(
+        f"Confidence Score   : "
+        f"{confidence_result.confidence_score:.2f} / 100"
+    )
+
+    print(
+        f"Directional Bias   : "
+        f"{confidence_result.directional_bias}"
+    )
+
+    print(
+        f"Directional Power  : "
+        f"{confidence_result.directional_confidence:.2f}%"
+    )
+
+    print(
+        f"Confidence Rating  : "
+        f"{confidence_result.confidence_rating}"
+    )
+
+    print(
+        f"Trade Quality      : "
+        f"{confidence_result.trade_quality}"
+    )
+
+    print(
+        f"Market State       : "
+        f"{confidence_result.market_state}"
+    )
+
+    print(
+        f"Structure Direction: "
+        f"{confidence_result.structure_direction}"
+    )
+
+    print(
+        f"Bullish Swings     : "
+        f"{confidence_result.bullish_swing_percent:.2f}%"
+    )
+
+    print(
+        f"Bearish Swings     : "
+        f"{confidence_result.bearish_swing_percent:.2f}%"
+    )
+
+    print_section_separator()
+    print("CONFIDENCE SCORE BREAKDOWN")
+    print_section_separator()
+
+    print(
+        f"Trend Component    : "
+        f"{confidence_result.trend_component:.2f} / 40"
+    )
+
+    print(
+        f"Swing Component    : "
+        f"{confidence_result.swing_component:.2f} / 25"
+    )
+
+    print(
+        f"BOS Component      : "
+        f"{confidence_result.bos_component:.2f} / 15"
+    )
+
+    print(
+        f"CHOCH Component    : "
+        f"{confidence_result.choch_component:.2f} / 10"
+    )
+
+    print(
+        f"Alignment Component: "
+        f"{confidence_result.alignment_component:.2f} / 10"
+    )
+
+    print_section_separator()
+    print("CONFIDENCE EVIDENCE")
+    print_section_separator()
+
+    for item in confidence_result.evidence:
+        print(f"[OK] {item}")
 
 def print_engine_summary(
     trend_result,
@@ -765,6 +861,14 @@ def run_engine_analysis(
         df
     )
 
+    confidence_result = calculate_confidence(
+        trend_result=trend_result,
+        swing_highs=swing_highs,
+        swing_lows=swing_lows,
+        bos_result=bos_result,
+        choch_result=choch_result,
+    )
+
     print()
 
     print_market_data_summary(
@@ -792,6 +896,10 @@ def run_engine_analysis(
 
     print_choch_analysis(
         choch_result=choch_result,
+    )
+
+    print_confidence_analysis(
+        confidence_result=confidence_result,
     )
 
     print_engine_summary(

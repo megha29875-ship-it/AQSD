@@ -3,7 +3,7 @@ AQSD
 Professional Option Intelligence Dashboard
 
 Module: professional_option_dashboard.py
-Version: 1.0
+Version: 2.0
 Author: AQSD
 
 Description:
@@ -14,7 +14,9 @@ The dashboard:
 - Reads the latest Decision JSON output
 - Displays important analytics on one screen
 - Uses colour-coded decision and probability cards
-- Provides a manual Refresh button
+- Reloads automatically when the Decision JSON changes
+- Provides a manual Reload button
+- Does not launch duplicate pipelines
 - Does not place orders
 
 Data source:
@@ -50,6 +52,8 @@ DECISION_JSON_FILE = (
 LIVE_DECISION_MODULE = (
     "Scripts.option_intelligence.live_decision_runner"
 )
+
+DASHBOARD_POLL_MS = 2000
 
 
 # ============================================================
@@ -518,33 +522,17 @@ class ProfessionalOptionDashboard:
             )
         )
 
+        self.last_decision_file_mtime_ns: int | None = None
+        self.dashboard_watch_job: str | None = None
+
         self.build_interface()
         self.load_existing_output()
+        self.start_dashboard_file_watch()
 
-    def start_live_refresh(
-        self,
-    ) -> None:
-        """
-        Start automatic dashboard refresh.
-        """
-
-        self.root.after(
-            30000,
-            self.refresh_live_data,
+        self.root.protocol(
+            "WM_DELETE_WINDOW",
+            self.close_dashboard,
         )
-
-    def refresh_live_data(
-        self,
-    ) -> None:
-        """
-        Refresh dashboard from the latest Decision JSON.
-        """
-
-        try:
-            self.load_existing_output()
-
-        finally:
-            self.start_live_refresh()
 
     # --------------------------------------------------------
     # GENERAL LAYOUT
@@ -1076,6 +1064,8 @@ class ProfessionalOptionDashboard:
                 data
             )
 
+            self.remember_decision_file_mtime()
+
         except Exception as error:
             self.status_variable.set(
                 f"No live result loaded: {error}"
@@ -1258,7 +1248,7 @@ class ProfessionalOptionDashboard:
 
         self.refresh_button = tk.Button(
             control_area,
-            text="REFRESH LIVE DATA",
+            text="RELOAD DASHBOARD",
             command=self.start_live_refresh,
             bg=NEUTRAL,
             fg="#FFFFFF",
@@ -1744,14 +1734,18 @@ class ProfessionalOptionDashboard:
 
 
     # --------------------------------------------------------
-    # RUN LIVE PIPELINE
+    # DASHBOARD RELOAD AND FILE WATCH
     # --------------------------------------------------------
 
     def start_live_refresh(
         self,
     ) -> None:
         """
-        Start FYERS refresh without freezing the window.
+        Reload the latest Decision JSON immediately.
+
+        The Control Center runs the analytics pipeline. The dashboard only
+        reads the latest output, so clicking this button never opens another
+        console or starts a duplicate FYERS request.
         """
 
         if self.refresh_running:
@@ -1761,117 +1755,154 @@ class ProfessionalOptionDashboard:
 
         self.refresh_button.configure(
             state="disabled",
-            text="REFRESHING...",
+            text="RELOADING...",
         )
 
         self.status_variable.set(
-            "Running live FYERS Decision Intelligence..."
+            "Reloading latest Decision Intelligence output..."
         )
 
-        worker = threading.Thread(
-            target=self.run_live_pipeline,
-            daemon=True,
+        self.root.after(
+            10,
+            self.reload_dashboard_now,
         )
 
-        worker.start()
-
-    def run_live_pipeline(
+    def reload_dashboard_now(
         self,
     ) -> None:
-        """
-        Run the live Decision module in a background thread.
-        """
+        """Reload the current JSON and restore the Reload button."""
 
         try:
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    LIVE_DECISION_MODULE,
-                ],
-                cwd=BASE_DIR,
-                capture_output=True,
-                text=True,
-                timeout=180,
-                check=False,
-            )
-
-            if completed.returncode != 0:
-                error_message = (
-                    completed.stderr.strip()
-                    or completed.stdout.strip()
-                    or "Unknown pipeline error."
-                )
-
-                raise RuntimeError(
-                    error_message
-                )
-
             data = load_json_file(
                 DECISION_JSON_FILE
             )
 
-            self.root.after(
-                0,
-                lambda: self.finish_refresh_success(
-                    data
-                ),
+            self.update_dashboard(
+                data
+            )
+
+            self.remember_decision_file_mtime()
+
+            self.status_variable.set(
+                "Dashboard reloaded successfully."
             )
 
         except Exception as error:
-            self.root.after(
-                0,
-                lambda: self.finish_refresh_error(
-                    str(error)
-                ),
+            self.status_variable.set(
+                f"Dashboard reload failed: {error}"
             )
 
-    def finish_refresh_success(
+            messagebox.showerror(
+                "AQSD Dashboard Reload Failed",
+                str(error),
+            )
+
+        finally:
+            self.refresh_running = False
+
+            self.refresh_button.configure(
+                state="normal",
+                text="RELOAD DASHBOARD",
+            )
+
+    def remember_decision_file_mtime(
         self,
-        data: dict[str, Any],
+    ) -> None:
+        """Remember the latest Decision JSON modification timestamp."""
+
+        try:
+            self.last_decision_file_mtime_ns = (
+                DECISION_JSON_FILE.stat().st_mtime_ns
+            )
+        except OSError:
+            self.last_decision_file_mtime_ns = None
+
+    def start_dashboard_file_watch(
+        self,
+    ) -> None:
+        """Start watching the Decision JSON for Control Center updates."""
+
+        self.cancel_dashboard_file_watch()
+
+        self.dashboard_watch_job = self.root.after(
+            DASHBOARD_POLL_MS,
+            self.check_for_dashboard_update,
+        )
+
+    def check_for_dashboard_update(
+        self,
     ) -> None:
         """
-        Complete a successful refresh.
+        Reload only when the Decision JSON has changed.
+
+        This keeps one dashboard window open all day and avoids repeated
+        pipelines, consoles and duplicate browser/dashboard windows.
         """
 
-        self.update_dashboard(
-            data
-        )
+        self.dashboard_watch_job = None
 
-        self.refresh_running = False
+        try:
+            current_mtime_ns = (
+                DECISION_JSON_FILE.stat().st_mtime_ns
+            )
+        except OSError:
+            current_mtime_ns = None
 
-        self.refresh_button.configure(
-            state="normal",
-            text="REFRESH LIVE DATA",
-        )
+        if (
+            current_mtime_ns is not None
+            and current_mtime_ns
+            != self.last_decision_file_mtime_ns
+            and not self.refresh_running
+        ):
+            try:
+                data = load_json_file(
+                    DECISION_JSON_FILE
+                )
 
-        self.status_variable.set(
-            "Live Decision Intelligence refreshed successfully."
-        )
+                self.update_dashboard(
+                    data
+                )
 
-    def finish_refresh_error(
+                self.last_decision_file_mtime_ns = (
+                    current_mtime_ns
+                )
+
+                self.status_variable.set(
+                    "Dashboard updated automatically from the latest "
+                    "Control Center refresh."
+                )
+
+            except Exception as error:
+                self.status_variable.set(
+                    f"Automatic dashboard update failed: {error}"
+                )
+
+        self.start_dashboard_file_watch()
+
+    def cancel_dashboard_file_watch(
         self,
-        error_message: str,
     ) -> None:
-        """
-        Complete a failed refresh.
-        """
+        """Cancel the active Tkinter file-watch callback."""
 
-        self.refresh_running = False
+        if self.dashboard_watch_job is None:
+            return
 
-        self.refresh_button.configure(
-            state="normal",
-            text="REFRESH LIVE DATA",
-        )
+        try:
+            self.root.after_cancel(
+                self.dashboard_watch_job
+            )
+        except tk.TclError:
+            pass
 
-        self.status_variable.set(
-            "Live refresh failed."
-        )
+        self.dashboard_watch_job = None
 
-        messagebox.showerror(
-            "AQSD Live Refresh Failed",
-            error_message,
-        )
+    def close_dashboard(
+        self,
+    ) -> None:
+        """Close the dashboard cleanly."""
+
+        self.cancel_dashboard_file_watch()
+        self.root.destroy()
 
 
 # ============================================================
@@ -1880,72 +1911,46 @@ class ProfessionalOptionDashboard:
 
 def main() -> None:
     """
-    Launch the professional Option Intelligence dashboard and ensure
-    that the window is visible in front of VS Code.
+    Launch the professional Option Intelligence dashboard.
     """
 
     root = tk.Tk()
 
+    dashboard = ProfessionalOptionDashboard(
+        root
+    )
+
+    root.update_idletasks()
+    root.deiconify()
+
     try:
-        dashboard = ProfessionalOptionDashboard(
-            root
+        root.state("zoomed")
+    except tk.TclError:
+        root.geometry(
+            f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+20+20"
         )
 
-        root.update_idletasks()
-        root.deiconify()
-
-        try:
-            root.state("zoomed")
-        except tk.TclError:
-            root.geometry(
-                f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+20+20"
-            )
-
-        root.lift()
-        root.attributes(
+    root.lift()
+    root.attributes(
+        "-topmost",
+        True,
+    )
+    root.after(
+        1200,
+        lambda: root.attributes(
             "-topmost",
-            True,
-        )
-        root.after(
-            1200,
-            lambda: root.attributes(
-                "-topmost",
-                False,
-            ),
-        )
+            False,
+        ),
+    )
 
-        root.focus_force()
+    root.dashboard = dashboard
 
-        # Keep a reference for the lifetime of the Tk application.
-        root.dashboard = dashboard
+    print(
+        "AQSD dashboard window opened successfully.",
+        flush=True,
+    )
 
-        print(
-            "AQSD dashboard window opened successfully.",
-            flush=True,
-        )
-
-        root.mainloop()
-
-    except Exception as error:
-        print(
-            f"AQSD dashboard failed to open: {error}",
-            flush=True,
-        )
-
-        try:
-            messagebox.showerror(
-                "AQSD Dashboard Error",
-                str(error),
-            )
-        except tk.TclError:
-            pass
-
-        try:
-            root.destroy()
-        except tk.TclError:
-            pass
-
-        raise
+    root.mainloop()
 
 
 if __name__ == "__main__":
