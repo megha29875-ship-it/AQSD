@@ -31,6 +31,11 @@ import pandas as pd
 from dotenv import load_dotenv
 from fyers_apiv3 import fyersModel
 
+from .phase import (
+    MarketPhaseResult,
+    analyze_market_phase,
+)
+
 from .market_regime import (
     MarketRegimeResult,
     analyze_market_regime,
@@ -791,6 +796,66 @@ def print_market_regime_analysis(
             f"[OK] {item}"
         )
 
+def print_market_phase_analysis(
+    phase_result: MarketPhaseResult,
+) -> None:
+    """
+    Print AQSD Market Phase Engine result.
+    """
+
+    print_section_separator()
+    print("AQSD MARKET PHASE ENGINE")
+    print_section_separator()
+
+    print(
+        f"Market Phase       : "
+        f"{phase_result.phase.value}"
+    )
+
+    print(
+        f"Phase Score        : "
+        f"{phase_result.phase_score:.2f} / 100"
+    )
+
+    print(
+        f"Phase Confidence   : "
+        f"{phase_result.phase_confidence:.2f}%"
+    )
+
+    print(
+        f"Directional Bias   : "
+        f"{phase_result.directional_bias}"
+    )
+
+    print(
+        f"Transition State   : "
+        f"{phase_result.transition_state}"
+    )
+
+    print(
+        f"Phase Quality      : "
+        f"{phase_result.phase_quality}"
+    )
+
+    print_section_separator()
+    print("PHASE SCORE BREAKDOWN")
+    print_section_separator()
+
+    for key, value in phase_result.score_breakdown.items():
+        print(
+            f"{key:<25}"
+            f"{value:>8.2f}"
+        )
+
+    print_section_separator()
+    print("PHASE EVIDENCE")
+    print_section_separator()
+
+    for item in phase_result.evidence:
+        print(
+            f"[OK] {item}"
+        )
+
 def print_confidence_analysis(
     confidence_result: ConfidenceResult,
 ) -> None:
@@ -977,6 +1042,14 @@ def run_engine_analysis(
         choch_result=choch_result,
     )
 
+    phase_result = analyze_market_phase(
+        trend_result=trend_result,
+        confidence_result=confidence_result,
+        regime_result=regime_result,
+        bos_result=bos_result,
+        choch_result=choch_result,
+    )
+
     print()
 
     print_market_data_summary(
@@ -1014,6 +1087,11 @@ def run_engine_analysis(
         regime_result=regime_result,
     )
 
+    print_market_phase_analysis(
+        phase_result=phase_result,
+    )
+
+    
     print_engine_summary(
         trend_result=trend_result,
         bos_result=bos_result,

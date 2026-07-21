@@ -198,26 +198,6 @@ class StructureScore:
 
 
 @dataclass
-class ConfidenceResult:
-    """
-    Stores the confidence calculation.
-    """
-
-    confidence: float
-    evidence_score: float
-    maximum_score: float
-    evidence: List[str] = field(
-        default_factory=list
-    )
-
-    def __post_init__(self) -> None:
-        self.confidence = max(
-            0.0,
-            min(100.0, float(self.confidence)),
-        )
-
-
-@dataclass
 class MarketStructureResult:
     """
     Final output returned by the Market Structure Engine.

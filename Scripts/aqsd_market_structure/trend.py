@@ -1095,6 +1095,155 @@ def calculate_trend_score(
 # COMPLETE TREND ANALYSIS
 # =========================================================
 
+def reconcile_trend_direction(
+    trend: TrendResult,
+) -> TrendResult:
+    """
+    Reconcile a neutral trend direction with the completed
+    Trend Score and its supporting evidence.
+
+    This function uses only fields already available in
+    TrendResult.
+    """
+
+    if trend.direction != TrendDirection.NEUTRAL:
+        return trend
+
+    bullish_votes = 0
+    bearish_votes = 0
+
+    # -----------------------------------------------------
+    # Price versus EMA20
+    # -----------------------------------------------------
+
+    if (
+        trend.ema20 is not None
+        and trend.close > trend.ema20
+    ):
+        bullish_votes += 1
+
+    elif (
+        trend.ema20 is not None
+        and trend.close < trend.ema20
+    ):
+        bearish_votes += 1
+
+    # -----------------------------------------------------
+    # EMA20 versus EMA50
+    # -----------------------------------------------------
+
+    if (
+        trend.ema20 is not None
+        and trend.ema50 is not None
+        and trend.ema20 > trend.ema50
+    ):
+        bullish_votes += 1
+
+    elif (
+        trend.ema20 is not None
+        and trend.ema50 is not None
+        and trend.ema20 < trend.ema50
+    ):
+        bearish_votes += 1
+
+    # -----------------------------------------------------
+    # EMA50 versus EMA200
+    # -----------------------------------------------------
+
+    if (
+        trend.ema50 is not None
+        and trend.ema200 is not None
+        and trend.ema50 > trend.ema200
+    ):
+        bullish_votes += 1
+
+    elif (
+        trend.ema50 is not None
+        and trend.ema200 is not None
+        and trend.ema50 < trend.ema200
+    ):
+        bearish_votes += 1
+
+    # -----------------------------------------------------
+    # EMA20 slope score
+    #
+    # Maximum score is 15:
+    # Above 7.5 = bullish
+    # Below 7.5 = bearish
+    # -----------------------------------------------------
+
+    ema20_slope_score = float(
+        trend.score_breakdown.get(
+            "ema20_slope",
+            7.5,
+        )
+    )
+
+    if ema20_slope_score > 7.5:
+        bullish_votes += 1
+
+    elif ema20_slope_score < 7.5:
+        bearish_votes += 1
+
+    # -----------------------------------------------------
+    # EMA50 slope score
+    #
+    # Maximum score is 10:
+    # Above 5 = bullish
+    # Below 5 = bearish
+    # -----------------------------------------------------
+
+    ema50_slope_score = float(
+        trend.score_breakdown.get(
+            "ema50_slope",
+            5.0,
+        )
+    )
+
+    if ema50_slope_score > 5.0:
+        bullish_votes += 1
+
+    elif ema50_slope_score < 5.0:
+        bearish_votes += 1
+
+    # -----------------------------------------------------
+    # Final directional reconciliation
+    # -----------------------------------------------------
+
+    if (
+        trend.trend_score >= 60.0
+        and bullish_votes >= 3
+        and bullish_votes > bearish_votes
+    ):
+        trend.direction = TrendDirection.BULLISH
+
+        trend.evidence.append(
+            "Neutral direction reconciled to BULLISH: "
+            f"Trend Score {trend.trend_score:.2f}, "
+            f"bullish votes {bullish_votes}/5"
+        )
+
+    elif (
+        trend.trend_score <= 40.0
+        and bearish_votes >= 3
+        and bearish_votes > bullish_votes
+    ):
+        trend.direction = TrendDirection.BEARISH
+
+        trend.evidence.append(
+            "Neutral direction reconciled to BEARISH: "
+            f"Trend Score {trend.trend_score:.2f}, "
+            f"bearish votes {bearish_votes}/5"
+        )
+
+    else:
+        trend.evidence.append(
+            "Direction remains NEUTRAL: "
+            f"bullish votes {bullish_votes}/5, "
+            f"bearish votes {bearish_votes}/5"
+        )
+
+    return trend
 
 def analyze_trend(
     df: pd.DataFrame,
@@ -1133,6 +1282,10 @@ def analyze_trend(
         df=df,
         trend=trend,
         config=config,
+    )
+
+    trend = reconcile_trend_direction(
+        trend=trend
     )
 
     return trend
