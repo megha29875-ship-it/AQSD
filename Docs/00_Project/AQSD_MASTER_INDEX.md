@@ -110,3 +110,51 @@ Foundation Started
 ---
 
 End of Document
+
+# Documentation Index
+
+00_Project
+01_Architecture
+02_Intelligence
+03_Strategies
+04_AI
+05_Development
+06_Reference
+07_Research
+
+# Roadmap
+
+Milestone 01
+Foundation
+
+Milestone 02
+History Analytics
+
+Milestone 03
+Knowledge Engine
+
+Milestone 04
+AI Commentary
+
+Milestone 05
+Institutional Dashboard
+
+Milestone 06
+Strategy Builder
+
+Milestone 07
+Backtesting Intelligence
+
+# Guiding Principles
+
+• Modular Design
+
+• Explainable Analytics
+
+• Evidence-Based Decisions
+
+• Continuous Learning
+
+• Professional Documentation
+
+• Independent Knowledge Repository
