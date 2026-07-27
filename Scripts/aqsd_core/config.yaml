@@ -1,0 +1,31 @@
+project:
+
+  name: AQSD
+
+  version: 1.0.0
+
+paths:
+
+  data: Data
+
+  output: Output
+
+  reports: Reports
+
+  logs: Logs
+
+database:
+
+  master_database: AQSD_Master_Database.xlsx
+
+  validation_report: validation_report.xlsx
+
+logging:
+
+  level: INFO
+
+  file: aqsd.log
+
+calendar:
+
+  holidays_file: nse_calendar_2026.csv
