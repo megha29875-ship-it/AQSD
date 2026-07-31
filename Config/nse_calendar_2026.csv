@@ -1,0 +1,9 @@
+Date,Trading,Holiday,Holiday_Name
+2026-07-24,True,False,
+2026-07-25,False,False,Saturday
+2026-07-26,False,False,Sunday
+2026-07-27,True,False,
+2026-07-28,True,False,
+2026-07-29,True,False,
+2026-07-30,True,False,
+2026-07-31,True,False,

@@ -1,0 +1,34 @@
+{
+    "module": "DAQ-001",
+    "version": "1.0.0",
+    "trade_date": "2026-07-30",
+    "run_at": "2026-07-31T19:50:55+05:30",
+    "output_directory": "C:\\Users\\megha\\AQSD\\Data\\Raw\\NSE\\2026\\07\\30",
+    "reports_requested": 2,
+    "reports_downloaded": 2,
+    "overall_status": "SUCCESS",
+    "results": [
+        {
+            "report_name": "Participant Wise Open Interest",
+            "trade_date": "2026-07-30",
+            "url": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_30072026.csv",
+            "output_file": "C:\\Users\\megha\\AQSD\\Data\\Raw\\NSE\\2026\\07\\30\\fao_participant_oi_30072026.csv",
+            "status": "SUCCESS",
+            "file_size_bytes": 963,
+            "sha256": "f9de521b645550730e465125b5e603ff22de7dce4adb39348baba36cb12317f9",
+            "downloaded_at": "2026-07-31T19:50:55+05:30",
+            "error": null
+        },
+        {
+            "report_name": "Participant Wise Trading Volume",
+            "trade_date": "2026-07-30",
+            "url": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_30072026.csv",
+            "output_file": "C:\\Users\\megha\\AQSD\\Data\\Raw\\NSE\\2026\\07\\30\\fao_participant_vol_30072026.csv",
+            "status": "SUCCESS",
+            "file_size_bytes": 968,
+            "sha256": "059733d32d68262259ce7063ce47dbc2891602d98765cca5c57b502e3e4f31fe",
+            "downloaded_at": "2026-07-31T19:50:55+05:30",
+            "error": null
+        }
+    ]
+}
