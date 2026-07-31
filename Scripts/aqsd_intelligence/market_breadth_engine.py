@@ -3,17 +3,17 @@ AQSD
 Market Breadth Engine
 
 Module : MBI-001
-Version: 1.0.0
+Version: 1.1.0
 Author : AQSD
 
 Description
 -----------
-Measures the internal health and participation of the broader market.
+Measures the internal strength, participation and health of the
+NSE equity market using the AQSD market-breadth snapshot.
 
-The engine analyses a prepared daily market-universe file containing
-approximately 500 to 1,000 NSE stocks.
-
-The input can be either CSV or Excel.
+Input
+-----
+Data/Market_Breadth/market_breadth_snapshot.xlsx
 
 Required columns
 ----------------
@@ -28,45 +28,26 @@ Low_52W
 
 Optional columns
 ----------------
+Company_Name
 Sector
+Industry
 Market_Cap_Category
 Volume
 Average_Volume_20
 Is_FnO
-
-Supported analytics
--------------------
-- Advances
-- Declines
-- Unchanged stocks
-- Advance / Decline ratio
-- Advance percentage
-- Decline percentage
-- Stocks above EMA20
-- Stocks above EMA50
-- Stocks above EMA200
-- Stocks near 52-week high
-- Stocks near 52-week low
-- New 52-week highs
-- New 52-week lows
-- Volume participation
-- Sector participation
-- Large-cap breadth
-- Mid-cap breadth
-- Small-cap breadth
-- F&O breadth
-- Breadth momentum
-- Breadth trend
-- Breadth strength
-- Breadth regime
-- Risk-on / Risk-off classification
-- Internal market health
-- Breadth confidence
-- Explainable conclusion
+Is_Nifty_100
+Is_Nifty_200
+Is_Nifty_500
 
 Important
 ---------
-This engine performs market analysis only.
+This version safely consolidates duplicate dataframe columns.
+
+Duplicate columns can occur when the classification builder adds
+Sector, Industry, Market_Cap_Category or Is_FnO to a workbook that
+already contains those headings.
+
+This engine performs analytical market assessment only.
 
 It does not generate BUY, SELL or SHORT instructions.
 """
@@ -74,7 +55,6 @@ It does not generate BUY, SELL or SHORT instructions.
 from __future__ import annotations
 
 import argparse
-import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -89,7 +69,7 @@ import pandas as pd
 # ==========================================================
 
 MODULE_ID: Final[str] = "MBI-001"
-MODULE_VERSION: Final[str] = "1.0.0"
+MODULE_VERSION: Final[str] = "1.1.0"
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 
@@ -100,7 +80,7 @@ DEFAULT_INPUT_FILE: Final[Path] = (
     / "market_breadth_snapshot.xlsx"
 )
 
-OUTPUT_DIR: Final[Path] = (
+OUTPUT_DIRECTORY: Final[Path] = (
     BASE_DIR
     / "Output"
     / "Market_Breadth"
@@ -117,16 +97,8 @@ REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
     "Low_52W",
 )
 
-OPTIONAL_COLUMNS: Final[tuple[str, ...]] = (
-    "Sector",
-    "Market_Cap_Category",
-    "Volume",
-    "Average_Volume_20",
-    "Is_FnO",
-)
-
-NEAR_52W_HIGH_THRESHOLD: Final[float] = 0.95
-NEAR_52W_LOW_THRESHOLD: Final[float] = 1.05
+NEAR_HIGH_MULTIPLIER: Final[float] = 0.95
+NEAR_LOW_MULTIPLIER: Final[float] = 1.05
 
 
 # ==========================================================
@@ -144,10 +116,12 @@ class SegmentBreadth:
     advances: int
     declines: int
     unchanged: int
+
     advance_percentage: float
     above_ema20_percentage: float
     above_ema50_percentage: float
     above_ema200_percentage: float
+
     score: int
     classification: str
 
@@ -162,10 +136,12 @@ class SectorBreadth:
     total_stocks: int
     advances: int
     declines: int
+
     advance_percentage: float
     above_ema20_percentage: float
     above_ema50_percentage: float
     above_ema200_percentage: float
+
     score: int
     classification: str
 
@@ -173,14 +149,14 @@ class SectorBreadth:
 @dataclass(frozen=True)
 class MarketBreadthResult:
     """
-    Complete market-breadth result.
+    Complete AQSD market-breadth result.
     """
 
     requested_date: date
     analysis_date: date
     source_file: Path
 
-    total_stocks: int
+    input_rows: int
     valid_stocks: int
     invalid_rows: int
 
@@ -248,321 +224,24 @@ class MarketBreadthResult:
 
 
 # ==========================================================
-# COLUMN HELPERS
+# GENERAL HELPERS
 # ==========================================================
 
-def normalize_header(value: object) -> str:
+def clamp_score(
+    value: float,
+) -> int:
     """
-    Convert a column heading into a consistent format.
+    Restrict a score to the range 0-100.
     """
 
-    text = str(value).strip()
-
-    text = re.sub(
-        r"[^A-Za-z0-9]+",
-        "_",
-        text,
+    return max(
+        0,
+        min(
+            round(value),
+            100,
+        ),
     )
 
-    text = re.sub(
-        r"_+",
-        "_",
-        text,
-    )
-
-    return text.strip("_")
-
-
-def normalize_dataframe_columns(
-    dataframe: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Normalize known column-name variants.
-    """
-
-    normalized = dataframe.copy()
-
-    normalized.columns = [
-        normalize_header(column)
-        for column in normalized.columns
-    ]
-
-    aliases = {
-        "SYMBOL": "Symbol",
-        "TICKER": "Symbol",
-        "CLOSE": "Close",
-        "LTP": "Close",
-        "PREVIOUS_CLOSE": "Previous_Close",
-        "PREV_CLOSE": "Previous_Close",
-        "PREVIOUSCLOSE": "Previous_Close",
-        "EMA_20": "EMA20",
-        "EMA20": "EMA20",
-        "EMA_50": "EMA50",
-        "EMA50": "EMA50",
-        "EMA_200": "EMA200",
-        "EMA200": "EMA200",
-        "HIGH_52W": "High_52W",
-        "52W_HIGH": "High_52W",
-        "52_WEEK_HIGH": "High_52W",
-        "LOW_52W": "Low_52W",
-        "52W_LOW": "Low_52W",
-        "52_WEEK_LOW": "Low_52W",
-        "SECTOR": "Sector",
-        "INDUSTRY": "Sector",
-        "MARKET_CAP_CATEGORY": "Market_Cap_Category",
-        "MARKET_CAP": "Market_Cap_Category",
-        "CAP_CATEGORY": "Market_Cap_Category",
-        "VOLUME": "Volume",
-        "AVERAGE_VOLUME_20": "Average_Volume_20",
-        "AVG_VOLUME_20": "Average_Volume_20",
-        "20D_AVG_VOLUME": "Average_Volume_20",
-        "IS_FNO": "Is_FnO",
-        "FNO": "Is_FnO",
-        "IS_F_O": "Is_FnO",
-    }
-
-    rename_map: dict[str, str] = {}
-
-    for column in normalized.columns:
-        key = column.upper()
-
-        if key in aliases:
-            rename_map[column] = aliases[key]
-
-    return normalized.rename(
-        columns=rename_map
-    )
-
-
-def validate_required_columns(
-    dataframe: pd.DataFrame,
-) -> None:
-    """
-    Ensure all required breadth columns are available.
-    """
-
-    missing = [
-        column
-        for column in REQUIRED_COLUMNS
-        if column not in dataframe.columns
-    ]
-
-    if missing:
-        raise KeyError(
-            "Market breadth input is missing required columns: "
-            + ", ".join(missing)
-        )
-
-
-# ==========================================================
-# INPUT READING
-# ==========================================================
-
-def read_market_snapshot(
-    source_file: Path,
-    sheet_name: str | int = 0,
-) -> pd.DataFrame:
-    """
-    Read a CSV or Excel market-breadth snapshot.
-    """
-
-    if not source_file.exists():
-        raise FileNotFoundError(
-            f"Market breadth input file not found: {source_file}"
-        )
-
-    suffix = source_file.suffix.lower()
-
-    if suffix == ".csv":
-        dataframe = pd.read_csv(
-            source_file
-        )
-
-    elif suffix in {
-        ".xlsx",
-        ".xlsm",
-    }:
-        dataframe = pd.read_excel(
-            source_file,
-            sheet_name=sheet_name,
-            engine="openpyxl",
-        )
-
-    else:
-        raise ValueError(
-            "Supported input formats are CSV, XLSX and XLSM."
-        )
-
-    dataframe = dataframe.dropna(
-        how="all"
-    ).reset_index(drop=True)
-
-    dataframe = normalize_dataframe_columns(
-        dataframe
-    )
-
-    validate_required_columns(
-        dataframe
-    )
-
-    return dataframe
-
-
-# ==========================================================
-# DATA CLEANING
-# ==========================================================
-
-def convert_numeric_columns(
-    dataframe: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Convert market-value columns into numeric data.
-    """
-
-    result = dataframe.copy()
-
-    numeric_columns = [
-        "Close",
-        "Previous_Close",
-        "EMA20",
-        "EMA50",
-        "EMA200",
-        "High_52W",
-        "Low_52W",
-        "Volume",
-        "Average_Volume_20",
-    ]
-
-    for column in numeric_columns:
-        if column not in result.columns:
-            continue
-
-        result[column] = pd.to_numeric(
-            result[column],
-            errors="coerce",
-        )
-
-    return result
-
-
-def normalize_boolean_value(
-    value: object,
-) -> bool:
-    """
-    Convert common F&O markers into Boolean values.
-    """
-
-    if isinstance(value, bool):
-        return value
-
-    if value is None:
-        return False
-
-    try:
-        if pd.isna(value):
-            return False
-    except TypeError:
-        pass
-
-    text = str(value).strip().upper()
-
-    return text in {
-        "TRUE",
-        "YES",
-        "Y",
-        "1",
-        "FNO",
-        "F&O",
-    }
-
-
-def prepare_market_snapshot(
-    dataframe: pd.DataFrame,
-) -> tuple[pd.DataFrame, int]:
-    """
-    Clean and validate the breadth snapshot.
-    """
-
-    prepared = convert_numeric_columns(
-        dataframe
-    )
-
-    prepared["Symbol"] = (
-        prepared["Symbol"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
-    required_numeric = [
-        "Close",
-        "Previous_Close",
-        "EMA20",
-        "EMA50",
-        "EMA200",
-        "High_52W",
-        "Low_52W",
-    ]
-
-    valid_mask = (
-        prepared["Symbol"].ne("")
-        & prepared["Symbol"].ne("NAN")
-    )
-
-    for column in required_numeric:
-        valid_mask &= (
-            prepared[column].notna()
-            & prepared[column].gt(0)
-        )
-
-    invalid_rows = int(
-        (~valid_mask).sum()
-    )
-
-    prepared = prepared.loc[
-        valid_mask
-    ].copy()
-
-    prepared = prepared.drop_duplicates(
-        subset=["Symbol"],
-        keep="last",
-    )
-
-    if "Sector" not in prepared.columns:
-        prepared["Sector"] = "UNKNOWN"
-
-    prepared["Sector"] = (
-        prepared["Sector"]
-        .fillna("UNKNOWN")
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
-    if "Market_Cap_Category" not in prepared.columns:
-        prepared["Market_Cap_Category"] = "UNKNOWN"
-
-    prepared["Market_Cap_Category"] = (
-        prepared["Market_Cap_Category"]
-        .fillna("UNKNOWN")
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
-    if "Is_FnO" not in prepared.columns:
-        prepared["Is_FnO"] = False
-    else:
-        prepared["Is_FnO"] = prepared["Is_FnO"].apply(
-            normalize_boolean_value
-        )
-
-    return prepared, invalid_rows
-
-
-# ==========================================================
-# SAFE CALCULATIONS
-# ==========================================================
 
 def safe_percentage(
     numerator: float,
@@ -598,31 +277,542 @@ def safe_ratio(
     )
 
 
-def clamp_score(
-    value: float,
-) -> int:
+def format_optional_ratio(
+    value: float | None,
+) -> str:
     """
-    Restrict a score to 0-100.
+    Format an optional numeric ratio.
     """
 
-    return max(
-        0,
-        min(
-            round(value),
-            100,
-        ),
+    if value is None:
+        return "NOT AVAILABLE"
+
+    return f"{value:.2f}"
+
+
+# ==========================================================
+# COLUMN NORMALIZATION
+# ==========================================================
+
+def normalize_header(
+    value: object,
+) -> str:
+    """
+    Normalize a dataframe heading.
+    """
+
+    text = str(value).strip()
+
+    text = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        text,
+    )
+
+    text = re.sub(
+        r"_+",
+        "_",
+        text,
+    )
+
+    return text.strip("_")
+
+
+def consolidate_duplicate_columns(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Consolidate duplicate dataframe columns safely.
+
+    Example
+    -------
+    If two columns are both named Sector, this function keeps one
+    Sector column and fills missing values from the duplicate.
+
+    This prevents:
+
+        dataframe["Sector"]
+
+    from returning a DataFrame instead of a Series.
+    """
+
+    if dataframe.columns.is_unique:
+        return dataframe.copy()
+
+    result = pd.DataFrame(
+        index=dataframe.index
+    )
+
+    processed_columns: set[str] = set()
+
+    for column_name in dataframe.columns:
+        column_text = str(column_name)
+
+        if column_text in processed_columns:
+            continue
+
+        processed_columns.add(
+            column_text
+        )
+
+        matching_positions = [
+            position
+            for position, existing_column
+            in enumerate(dataframe.columns)
+            if str(existing_column) == column_text
+        ]
+
+        if len(matching_positions) == 1:
+            result[column_text] = dataframe.iloc[
+                :,
+                matching_positions[0],
+            ]
+
+            continue
+
+        duplicate_group = dataframe.iloc[
+            :,
+            matching_positions,
+        ].copy()
+
+        combined_series = duplicate_group.iloc[
+            :,
+            0,
+        ].copy()
+
+        for duplicate_position in range(
+            1,
+            duplicate_group.shape[1],
+        ):
+            candidate_series = duplicate_group.iloc[
+                :,
+                duplicate_position,
+            ]
+
+            empty_mask = (
+                combined_series.isna()
+                | combined_series.astype(str).str.strip().isin(
+                    {
+                        "",
+                        "NAN",
+                        "NONE",
+                        "UNKNOWN",
+                        "UNCLASSIFIED",
+                    }
+                )
+            )
+
+            candidate_valid_mask = (
+                candidate_series.notna()
+                & ~candidate_series.astype(str).str.strip().isin(
+                    {
+                        "",
+                        "NAN",
+                        "NONE",
+                    }
+                )
+            )
+
+            replacement_mask = (
+                empty_mask
+                & candidate_valid_mask
+            )
+
+            combined_series.loc[
+                replacement_mask
+            ] = candidate_series.loc[
+                replacement_mask
+            ]
+
+        result[column_text] = combined_series
+
+    return result
+
+
+def normalize_dataframe_columns(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Normalize column names and known aliases.
+    """
+
+    normalized = dataframe.copy()
+
+    normalized.columns = [
+        normalize_header(column)
+        for column in normalized.columns
+    ]
+
+    aliases = {
+        "SYMBOL": "Symbol",
+        "TICKER": "Symbol",
+        "STOCK": "Symbol",
+
+        "CLOSE": "Close",
+        "LTP": "Close",
+
+        "PREVIOUS_CLOSE": "Previous_Close",
+        "PREV_CLOSE": "Previous_Close",
+        "PREVIOUSCLOSE": "Previous_Close",
+
+        "EMA_20": "EMA20",
+        "EMA20": "EMA20",
+
+        "EMA_50": "EMA50",
+        "EMA50": "EMA50",
+
+        "EMA_200": "EMA200",
+        "EMA200": "EMA200",
+
+        "HIGH_52W": "High_52W",
+        "52W_HIGH": "High_52W",
+        "52_WEEK_HIGH": "High_52W",
+
+        "LOW_52W": "Low_52W",
+        "52W_LOW": "Low_52W",
+        "52_WEEK_LOW": "Low_52W",
+
+        "COMPANY_NAME": "Company_Name",
+        "COMPANY": "Company_Name",
+
+        "SECTOR": "Sector",
+        "INDUSTRY": "Industry",
+
+        "MARKET_CAP_CATEGORY": "Market_Cap_Category",
+        "CAP_CATEGORY": "Market_Cap_Category",
+        "MARKET_CAP": "Market_Cap_Category",
+
+        "VOLUME": "Volume",
+
+        "AVERAGE_VOLUME_20": "Average_Volume_20",
+        "AVG_VOLUME_20": "Average_Volume_20",
+        "20D_AVG_VOLUME": "Average_Volume_20",
+
+        "IS_FNO": "Is_FnO",
+        "IS_F_O": "Is_FnO",
+        "FNO": "Is_FnO",
+
+        "IS_NIFTY_100": "Is_Nifty_100",
+        "IS_NIFTY_200": "Is_Nifty_200",
+        "IS_NIFTY_500": "Is_Nifty_500",
+    }
+
+    rename_map: dict[str, str] = {}
+
+    for column in normalized.columns:
+        alias_key = str(column).upper()
+
+        if alias_key in aliases:
+            rename_map[str(column)] = aliases[
+                alias_key
+            ]
+
+    normalized = normalized.rename(
+        columns=rename_map
+    )
+
+    normalized = consolidate_duplicate_columns(
+        normalized
+    )
+
+    return normalized
+
+
+def validate_required_columns(
+    dataframe: pd.DataFrame,
+) -> None:
+    """
+    Confirm the required breadth columns exist.
+    """
+
+    missing_columns = [
+        column
+        for column in REQUIRED_COLUMNS
+        if column not in dataframe.columns
+    ]
+
+    if missing_columns:
+        raise KeyError(
+            "Market breadth input is missing required columns: "
+            + ", ".join(missing_columns)
+        )
+
+
+# ==========================================================
+# INPUT READING
+# ==========================================================
+
+def read_market_snapshot(
+    source_file: Path,
+    sheet_name: str | int = 0,
+) -> pd.DataFrame:
+    """
+    Read the breadth snapshot from CSV or Excel.
+    """
+
+    if not source_file.exists():
+        raise FileNotFoundError(
+            f"Market breadth input file not found: {source_file}"
+        )
+
+    suffix = source_file.suffix.lower()
+
+    if suffix == ".csv":
+        dataframe = pd.read_csv(
+            source_file,
+            low_memory=False,
+        )
+
+    elif suffix in {
+        ".xlsx",
+        ".xlsm",
+    }:
+        try:
+            dataframe = pd.read_excel(
+                source_file,
+                sheet_name="Breadth Snapshot",
+                engine="openpyxl",
+            )
+
+        except ValueError:
+            dataframe = pd.read_excel(
+                source_file,
+                sheet_name=sheet_name,
+                engine="openpyxl",
+            )
+
+    else:
+        raise ValueError(
+            "Supported market-breadth formats are CSV, XLSX and XLSM."
+        )
+
+    dataframe = dataframe.dropna(
+        how="all"
+    ).reset_index(
+        drop=True
+    )
+
+    dataframe = normalize_dataframe_columns(
+        dataframe
+    )
+
+    validate_required_columns(
+        dataframe
+    )
+
+    return dataframe
+
+
+# ==========================================================
+# DATA PREPARATION
+# ==========================================================
+
+def normalize_boolean_value(
+    value: object,
+) -> bool:
+    """
+    Convert common truth markers into Boolean values.
+    """
+
+    if isinstance(value, bool):
+        return value
+
+    if value is None:
+        return False
+
+    try:
+        if pd.isna(value):
+            return False
+    except TypeError:
+        pass
+
+    text = str(value).strip().upper()
+
+    return text in {
+        "TRUE",
+        "YES",
+        "Y",
+        "1",
+        "FNO",
+        "F&O",
+    }
+
+
+def convert_numeric_columns(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Convert numerical breadth fields safely.
+    """
+
+    result = dataframe.copy()
+
+    numeric_columns = (
+        "Close",
+        "Previous_Close",
+        "EMA20",
+        "EMA50",
+        "EMA200",
+        "High_52W",
+        "Low_52W",
+        "Volume",
+        "Average_Volume_20",
+    )
+
+    for column in numeric_columns:
+        if column not in result.columns:
+            continue
+
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce",
+        )
+
+    return result
+
+
+def prepare_market_snapshot(
+    dataframe: pd.DataFrame,
+) -> tuple[pd.DataFrame, int]:
+    """
+    Clean and validate the market-breadth snapshot.
+    """
+
+    prepared = consolidate_duplicate_columns(
+        dataframe
+    )
+
+    prepared = convert_numeric_columns(
+        prepared
+    )
+
+    prepared["Symbol"] = (
+        prepared["Symbol"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    required_numeric_columns = (
+        "Close",
+        "Previous_Close",
+        "EMA20",
+        "EMA50",
+        "EMA200",
+        "High_52W",
+        "Low_52W",
+    )
+
+    valid_mask = (
+        prepared["Symbol"].ne("")
+        & prepared["Symbol"].ne("NAN")
+    )
+
+    for column in required_numeric_columns:
+        valid_mask &= (
+            prepared[column].notna()
+            & prepared[column].gt(0)
+        )
+
+    invalid_rows = int(
+        (~valid_mask).sum()
+    )
+
+    prepared = prepared.loc[
+        valid_mask
+    ].copy()
+
+    prepared = prepared.drop_duplicates(
+        subset=["Symbol"],
+        keep="last",
+    )
+
+    if "Company_Name" not in prepared.columns:
+        prepared["Company_Name"] = "UNKNOWN"
+
+    if "Sector" not in prepared.columns:
+        prepared["Sector"] = "UNKNOWN"
+
+    if "Industry" not in prepared.columns:
+        prepared["Industry"] = "UNKNOWN"
+
+    if "Market_Cap_Category" not in prepared.columns:
+        prepared["Market_Cap_Category"] = "UNCLASSIFIED"
+
+    text_defaults = {
+        "Company_Name": "UNKNOWN",
+        "Sector": "UNKNOWN",
+        "Industry": "UNKNOWN",
+        "Market_Cap_Category": "UNCLASSIFIED",
+    }
+
+    for column, default_value in text_defaults.items():
+        column_data = prepared[column]
+
+        if isinstance(
+            column_data,
+            pd.DataFrame,
+        ):
+            column_data = (
+                column_data
+                .bfill(axis=1)
+                .iloc[:, 0]
+            )
+
+        prepared[column] = (
+            column_data
+            .fillna(default_value)
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .replace(
+                {
+                    "": default_value,
+                    "NAN": default_value,
+                    "NONE": default_value,
+                }
+            )
+        )
+
+    if "Is_FnO" not in prepared.columns:
+        prepared["Is_FnO"] = False
+
+    prepared["Is_FnO"] = prepared[
+        "Is_FnO"
+    ].apply(
+        normalize_boolean_value
+    )
+
+    for column in (
+        "Is_Nifty_100",
+        "Is_Nifty_200",
+        "Is_Nifty_500",
+    ):
+        if column not in prepared.columns:
+            prepared[column] = False
+
+        prepared[column] = prepared[
+            column
+        ].apply(
+            normalize_boolean_value
+        )
+
+    return (
+        prepared.reset_index(drop=True),
+        invalid_rows,
     )
 
 
 # ==========================================================
-# STOCK CLASSIFICATION
+# STOCK BREADTH FLAGS
 # ==========================================================
 
 def add_breadth_flags(
     dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Add all per-stock breadth flags.
+    Add stock-level breadth flags.
     """
 
     result = dataframe.copy()
@@ -670,13 +860,13 @@ def add_breadth_flags(
     result["Near_52W_High"] = (
         result["Close"]
         >= result["High_52W"]
-        * NEAR_52W_HIGH_THRESHOLD
+        * NEAR_HIGH_MULTIPLIER
     )
 
     result["Near_52W_Low"] = (
         result["Close"]
         <= result["Low_52W"]
-        * NEAR_52W_LOW_THRESHOLD
+        * NEAR_LOW_MULTIPLIER
     )
 
     if {
@@ -692,6 +882,7 @@ def add_breadth_flags(
                 >= result["Average_Volume_20"]
             )
         )
+
     else:
         result["High_Volume"] = False
 
@@ -699,8 +890,27 @@ def add_breadth_flags(
 
 
 # ==========================================================
-# SEGMENT BREADTH
+# SEGMENT ANALYSIS
 # ==========================================================
+
+def calculate_segment_score(
+    *,
+    advance_percentage: float,
+    ema20_percentage: float,
+    ema50_percentage: float,
+    ema200_percentage: float,
+) -> int:
+    """
+    Calculate one segment's breadth score.
+    """
+
+    return clamp_score(
+        advance_percentage * 0.35
+        + ema20_percentage * 0.25
+        + ema50_percentage * 0.20
+        + ema200_percentage * 0.20
+    )
+
 
 def classify_segment_score(
     score: int,
@@ -724,37 +934,20 @@ def classify_segment_score(
     return "NEUTRAL"
 
 
-def calculate_segment_score(
-    *,
-    advance_percentage: float,
-    ema20_percentage: float,
-    ema50_percentage: float,
-    ema200_percentage: float,
-) -> int:
-    """
-    Calculate one market-segment breadth score.
-    """
-
-    return clamp_score(
-        advance_percentage * 0.35
-        + ema20_percentage * 0.25
-        + ema50_percentage * 0.20
-        + ema200_percentage * 0.20
-    )
-
-
 def analyse_segment(
     dataframe: pd.DataFrame,
     name: str,
 ) -> SegmentBreadth | None:
     """
-    Analyse one subset of the market.
+    Analyse one market-cap or F&O segment.
     """
 
     if dataframe.empty:
         return None
 
-    total = len(dataframe)
+    total_stocks = len(
+        dataframe
+    )
 
     advances = int(
         dataframe["Advance"].sum()
@@ -770,22 +963,28 @@ def analyse_segment(
 
     advance_percentage = safe_percentage(
         advances,
-        total,
+        total_stocks,
     )
 
     ema20_percentage = safe_percentage(
-        int(dataframe["Above_EMA20"].sum()),
-        total,
+        int(
+            dataframe["Above_EMA20"].sum()
+        ),
+        total_stocks,
     )
 
     ema50_percentage = safe_percentage(
-        int(dataframe["Above_EMA50"].sum()),
-        total,
+        int(
+            dataframe["Above_EMA50"].sum()
+        ),
+        total_stocks,
     )
 
     ema200_percentage = safe_percentage(
-        int(dataframe["Above_EMA200"].sum()),
-        total,
+        int(
+            dataframe["Above_EMA200"].sum()
+        ),
+        total_stocks,
     )
 
     score = calculate_segment_score(
@@ -797,7 +996,7 @@ def analyse_segment(
 
     return SegmentBreadth(
         name=name,
-        total_stocks=total,
+        total_stocks=total_stocks,
         advances=advances,
         declines=declines,
         unchanged=unchanged,
@@ -814,15 +1013,17 @@ def analyse_segment(
 
 def get_market_cap_segment(
     dataframe: pd.DataFrame,
-    accepted_names: set[str],
+    category: str,
 ) -> pd.DataFrame:
     """
-    Return stocks matching the requested market-cap aliases.
+    Return one market-cap category.
     """
 
-    normalized = (
+    normalized_category = (
         dataframe["Market_Cap_Category"]
+        .fillna("UNCLASSIFIED")
         .astype(str)
+        .str.strip()
         .str.upper()
         .str.replace(
             r"[^A-Z0-9]+",
@@ -831,72 +1032,84 @@ def get_market_cap_segment(
         )
     )
 
-    normalized_aliases = {
-        re.sub(
-            r"[^A-Z0-9]+",
-            "",
-            name.upper(),
-        )
-        for name in accepted_names
-    }
+    expected_category = re.sub(
+        r"[^A-Z0-9]+",
+        "",
+        category.upper(),
+    )
 
     return dataframe.loc[
-        normalized.isin(
-            normalized_aliases
+        normalized_category.eq(
+            expected_category
         )
-    ]
+    ].copy()
 
 
 # ==========================================================
-# SECTOR BREADTH
+# SECTOR ANALYSIS
 # ==========================================================
 
 def analyse_sectors(
     dataframe: pd.DataFrame,
 ) -> tuple[SectorBreadth, ...]:
     """
-    Calculate breadth for every available sector.
+    Analyse breadth for every classified sector.
     """
+
+    valid_sector_data = dataframe.loc[
+        dataframe["Sector"].notna()
+        & dataframe["Sector"].ne("")
+        & dataframe["Sector"].ne("UNKNOWN")
+    ].copy()
+
+    if valid_sector_data.empty:
+        return tuple()
 
     results: list[SectorBreadth] = []
 
-    grouped = dataframe.groupby(
+    for sector_name, sector_data in valid_sector_data.groupby(
         "Sector",
         dropna=False,
-    )
+    ):
+        total_stocks = len(
+            sector_data
+        )
 
-    for sector, group in grouped:
-        total = len(group)
-
-        if total == 0:
+        if total_stocks == 0:
             continue
 
         advances = int(
-            group["Advance"].sum()
+            sector_data["Advance"].sum()
         )
 
         declines = int(
-            group["Decline"].sum()
+            sector_data["Decline"].sum()
         )
 
         advance_percentage = safe_percentage(
             advances,
-            total,
+            total_stocks,
         )
 
         ema20_percentage = safe_percentage(
-            int(group["Above_EMA20"].sum()),
-            total,
+            int(
+                sector_data["Above_EMA20"].sum()
+            ),
+            total_stocks,
         )
 
         ema50_percentage = safe_percentage(
-            int(group["Above_EMA50"].sum()),
-            total,
+            int(
+                sector_data["Above_EMA50"].sum()
+            ),
+            total_stocks,
         )
 
         ema200_percentage = safe_percentage(
-            int(group["Above_EMA200"].sum()),
-            total,
+            int(
+                sector_data["Above_EMA200"].sum()
+            ),
+            total_stocks,
         )
 
         score = calculate_segment_score(
@@ -908,8 +1121,10 @@ def analyse_sectors(
 
         results.append(
             SectorBreadth(
-                sector=str(sector),
-                total_stocks=total,
+                sector=str(
+                    sector_name
+                ),
+                total_stocks=total_stocks,
                 advances=advances,
                 declines=declines,
                 advance_percentage=advance_percentage,
@@ -933,7 +1148,7 @@ def analyse_sectors(
 
 
 # ==========================================================
-# BREADTH SCORE
+# OVERALL BREADTH SCORE
 # ==========================================================
 
 def calculate_breadth_score(
@@ -948,7 +1163,7 @@ def calculate_breadth_score(
     volume_ratio: float | None,
 ) -> int:
     """
-    Calculate the overall market-breadth score.
+    Calculate the overall AQSD breadth score.
     """
 
     score = (
@@ -966,7 +1181,7 @@ def calculate_breadth_score(
     )
 
     if volume_ratio is not None:
-        if volume_ratio >= 2:
+        if volume_ratio >= 2.0:
             score += 6
 
         elif volume_ratio >= 1.2:
@@ -978,11 +1193,13 @@ def calculate_breadth_score(
         elif volume_ratio <= 0.8:
             score -= 3
 
-    return clamp_score(score)
+    return clamp_score(
+        score
+    )
 
 
 # ==========================================================
-# CLASSIFICATION ENGINES
+# BREADTH CLASSIFICATION
 # ==========================================================
 
 def determine_breadth_momentum(
@@ -992,7 +1209,7 @@ def determine_breadth_momentum(
     ema50_percentage: float,
 ) -> str:
     """
-    Determine near-term breadth momentum.
+    Determine short-term breadth momentum.
     """
 
     if (
@@ -1031,7 +1248,7 @@ def determine_breadth_trend(
     ema200_percentage: float,
 ) -> str:
     """
-    Determine the structural breadth trend.
+    Determine structural market breadth.
     """
 
     if (
@@ -1049,13 +1266,15 @@ def determine_breadth_trend(
         return "BEARISH"
 
     if (
-        ema20_percentage > ema50_percentage
+        ema20_percentage
+        > ema50_percentage
         > ema200_percentage
     ):
         return "IMPROVING BULLISH"
 
     if (
-        ema20_percentage < ema50_percentage
+        ema20_percentage
+        < ema50_percentage
         < ema200_percentage
     ):
         return "DETERIORATING BEARISH"
@@ -1137,7 +1356,7 @@ def determine_risk_environment(
     sector_participation_percentage: float,
 ) -> str:
     """
-    Classify the internal risk-on or risk-off environment.
+    Determine risk-on or risk-off conditions.
     """
 
     if (
@@ -1170,7 +1389,7 @@ def determine_internal_market_health(
     advance_percentage: float,
 ) -> str:
     """
-    Determine the internal health of the market.
+    Determine internal market health.
     """
 
     if (
@@ -1208,7 +1427,7 @@ def determine_participation_quality(
     fno_breadth: SegmentBreadth | None,
 ) -> str:
     """
-    Determine whether participation is broad or narrow.
+    Determine whether participation is broad, narrow or selective.
     """
 
     fno_advance_percentage = (
@@ -1230,13 +1449,10 @@ def determine_participation_quality(
     ):
         return "BROAD BASED WEAKNESS"
 
-    if (
-        abs(
-            advance_percentage
-            - fno_advance_percentage
-        )
-        >= 15
-    ):
+    if abs(
+        advance_percentage
+        - fno_advance_percentage
+    ) >= 15:
         return "NARROW / UNEVEN"
 
     return "SELECTIVE"
@@ -1250,7 +1466,7 @@ def determine_divergence_risk(
     sector_participation_percentage: float,
 ) -> str:
     """
-    Detect conflicts between short-term and long-term breadth.
+    Detect short-term versus long-term breadth divergence.
     """
 
     if (
@@ -1258,20 +1474,28 @@ def determine_divergence_risk(
         and ema20_percentage >= 60
         and ema200_percentage <= 40
     ):
-        return "HIGH — SHORT-TERM RECOVERY WITH WEAK LONG-TERM BREADTH"
+        return (
+            "HIGH — SHORT-TERM RECOVERY WITH "
+            "WEAK LONG-TERM BREADTH"
+        )
 
     if (
         advance_percentage <= 40
         and ema20_percentage <= 40
         and ema200_percentage >= 60
     ):
-        return "MODERATE — SHORT-TERM WEAKNESS WITH HEALTHY LONG-TERM BREADTH"
+        return (
+            "MODERATE — SHORT-TERM WEAKNESS WITH "
+            "HEALTHY LONG-TERM BREADTH"
+        )
 
     if (
         sector_participation_percentage < 40
         and advance_percentage >= 55
     ):
-        return "HIGH — INDEX OR STOCK-SPECIFIC ADVANCE"
+        return (
+            "HIGH — INDEX OR STOCK-SPECIFIC ADVANCE"
+        )
 
     return "LOW TO MODERATE"
 
@@ -1285,12 +1509,12 @@ def calculate_confidence(
     valid_stocks: int,
     invalid_rows: int,
     sector_count: int,
-    has_volume_data: bool,
-    has_market_cap_data: bool,
-    has_fno_data: bool,
+    volume_data_available: bool,
+    market_cap_data_available: bool,
+    fno_data_available: bool,
 ) -> int:
     """
-    Calculate breadth confidence from data completeness.
+    Calculate breadth confidence.
     """
 
     score = 55.0
@@ -1307,7 +1531,10 @@ def calculate_confidence(
     else:
         score -= 12
 
-    total_rows = valid_stocks + invalid_rows
+    total_rows = (
+        valid_stocks
+        + invalid_rows
+    )
 
     if total_rows > 0:
         invalid_percentage = (
@@ -1321,29 +1548,31 @@ def calculate_confidence(
             20,
         )
 
-    if sector_count >= 15:
+    if sector_count >= 12:
         score += 8
 
-    elif sector_count >= 8:
+    elif sector_count >= 6:
         score += 4
 
     else:
         score -= 5
 
-    if has_volume_data:
+    if volume_data_available:
         score += 6
 
-    if has_market_cap_data:
+    if market_cap_data_available:
         score += 5
 
-    if has_fno_data:
+    if fno_data_available:
         score += 5
 
-    return clamp_score(score)
+    return clamp_score(
+        score
+    )
 
 
 # ==========================================================
-# BEHAVIOUR AND EXPLANATION
+# INTERPRETATION
 # ==========================================================
 
 def determine_expected_behaviour(
@@ -1353,7 +1582,7 @@ def determine_expected_behaviour(
     divergence_risk: str,
 ) -> str:
     """
-    Describe likely behaviour from breadth conditions.
+    Determine expected market behaviour.
     """
 
     if breadth_regime == "BROAD-BASED BULLISH PARTICIPATION":
@@ -1374,7 +1603,9 @@ def determine_expected_behaviour(
             "MARKET HEALTH REMAINS WEAK"
         )
 
-    if breadth_regime == "BULLISH STRUCTURE WITH NARROWING PARTICIPATION":
+    if breadth_regime == (
+        "BULLISH STRUCTURE WITH NARROWING PARTICIPATION"
+    ):
         return (
             "THE MARKET MAY REMAIN POSITIVE, BUT NARROWING "
             "PARTICIPATION INCREASES CORRECTION RISK"
@@ -1405,7 +1636,7 @@ def build_concise_summary(
     breadth_strength: str,
     breadth_regime: str,
     risk_environment: str,
-    internal_health: str,
+    internal_market_health: str,
     confidence: int,
 ) -> str:
     """
@@ -1418,14 +1649,14 @@ def build_concise_summary(
         f"{breadth_strength} STRENGTH | "
         f"{breadth_regime} | "
         f"{risk_environment} | "
-        f"{internal_health} INTERNAL HEALTH | "
+        f"{internal_market_health} INTERNAL HEALTH | "
         f"{confidence}% CONFIDENCE"
     )
 
 
 def build_explanation(
     *,
-    total_stocks: int,
+    valid_stocks: int,
     advances: int,
     declines: int,
     advance_percentage: float,
@@ -1437,35 +1668,32 @@ def build_explanation(
     breadth_score: int,
     breadth_regime: str,
     risk_environment: str,
-    internal_health: str,
+    internal_market_health: str,
     participation_quality: str,
     divergence_risk: str,
 ) -> str:
     """
-    Build the final market-breadth explanation.
+    Build the final breadth explanation.
     """
 
     return (
-        f"The breadth universe contains {total_stocks:,} valid stocks. "
+        f"The breadth universe contains {valid_stocks:,} valid stocks. "
         f"{advances:,} stocks advanced and {declines:,} declined, "
         f"producing an advance rate of {advance_percentage:.2f}%. "
         f"{ema20_percentage:.2f}% of stocks are above EMA20, "
         f"{ema50_percentage:.2f}% are above EMA50 and "
         f"{ema200_percentage:.2f}% are above EMA200. "
-        f"{bullish_sectors} of {sector_count} analysed sectors are "
-        f"classified as bullish. The overall breadth score is "
+        f"{bullish_sectors} of {sector_count} classified sectors "
+        f"are bullish. The overall breadth score is "
         f"{breadth_score}%, creating a "
         f"{breadth_regime.lower()} regime. "
-        f"The market environment is {risk_environment.lower()}, "
-        f"internal market health is {internal_health.lower()}, and "
-        f"participation quality is {participation_quality.lower()}. "
-        f"Divergence risk is classified as {divergence_risk.lower()}."
+        f"The risk environment is {risk_environment.lower()}, "
+        f"internal market health is "
+        f"{internal_market_health.lower()}, and participation "
+        f"quality is {participation_quality.lower()}. "
+        f"Divergence risk is {divergence_risk.lower()}."
     )
 
-
-# ==========================================================
-# WARNINGS
-# ==========================================================
 
 def build_warnings(
     *,
@@ -1479,7 +1707,7 @@ def build_warnings(
     breadth_regime: str,
 ) -> tuple[str, ...]:
     """
-    Build breadth warnings.
+    Build the final breadth warnings.
     """
 
     warnings: list[str] = []
@@ -1491,29 +1719,28 @@ def build_warnings(
 
     if invalid_rows > 0:
         warnings.append(
-            f"{invalid_rows} input rows were excluded due to missing "
-            "or invalid values."
+            f"{invalid_rows} rows were excluded because required "
+            "price or indicator values were invalid."
         )
 
-    if sector_count < 8:
+    if sector_count < 6:
         warnings.append(
             "Sector coverage is limited."
         )
 
     if not volume_data_available:
         warnings.append(
-            "Volume breadth is unavailable because volume columns "
-            "were not supplied."
+            "Volume breadth is unavailable."
         )
 
     if not market_cap_data_available:
         warnings.append(
-            "Large-cap, mid-cap and small-cap breadth may be unavailable."
+            "Market-cap segment breadth is unavailable."
         )
 
     if not fno_data_available:
         warnings.append(
-            "F&O breadth is unavailable because Is_FnO was not supplied."
+            "F&O breadth is unavailable."
         )
 
     if "HIGH" in divergence_risk:
@@ -1537,18 +1764,17 @@ def build_warnings(
 
 
 # ==========================================================
-# OUTPUT EXPORT
+# EXPORT
 # ==========================================================
 
 def export_result(
-    *,
     result: MarketBreadthResult,
 ) -> tuple[Path, Path]:
     """
-    Export the market-breadth result to Excel and CSV.
+    Export summary and detailed breadth reports.
     """
 
-    OUTPUT_DIR.mkdir(
+    OUTPUT_DIRECTORY.mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -1557,57 +1783,64 @@ def export_result(
         "%Y%m%d"
     )
 
-    summary_file = (
-        OUTPUT_DIR
+    csv_file = (
+        OUTPUT_DIRECTORY
         / f"market_breadth_summary_{date_text}.csv"
     )
 
     excel_file = (
-        OUTPUT_DIR
+        OUTPUT_DIRECTORY
         / f"market_breadth_report_{date_text}.xlsx"
     )
 
-    summary_data = {
-        "Analysis_Date": result.analysis_date,
-        "Total_Stocks": result.total_stocks,
-        "Advances": result.advances,
-        "Declines": result.declines,
-        "Unchanged": result.unchanged,
-        "Advance_Percentage": result.advance_percentage,
-        "Decline_Percentage": result.decline_percentage,
-        "Advance_Decline_Ratio": result.advance_decline_ratio,
-        "Above_EMA20_Percentage": result.above_ema20_percentage,
-        "Above_EMA50_Percentage": result.above_ema50_percentage,
-        "Above_EMA200_Percentage": result.above_ema200_percentage,
-        "New_52W_Highs": result.new_52w_high_count,
-        "New_52W_Lows": result.new_52w_low_count,
-        "Bullish_Sectors": result.bullish_sectors,
-        "Bearish_Sectors": result.bearish_sectors,
-        "Sector_Participation_Percentage": (
-            result.sector_participation_percentage
-        ),
-        "Breadth_Score": result.breadth_score,
-        "Breadth_Momentum": result.breadth_momentum,
-        "Breadth_Trend": result.breadth_trend,
-        "Breadth_Strength": result.breadth_strength,
-        "Breadth_Regime": result.breadth_regime,
-        "Risk_Environment": result.risk_environment,
-        "Internal_Market_Health": result.internal_market_health,
-        "Participation_Quality": result.participation_quality,
-        "Divergence_Risk": result.divergence_risk,
-        "Confidence": result.confidence,
-        "Expected_Behaviour": result.expected_behaviour,
-        "Concise_Summary": result.concise_summary,
-        "Status": result.status,
-    }
-
     summary_dataframe = pd.DataFrame(
-        [summary_data]
-    )
-
-    summary_dataframe.to_csv(
-        summary_file,
-        index=False,
+        [
+            {
+                "Analysis_Date": result.analysis_date,
+                "Input_Rows": result.input_rows,
+                "Valid_Stocks": result.valid_stocks,
+                "Advances": result.advances,
+                "Declines": result.declines,
+                "Unchanged": result.unchanged,
+                "Advance_Percentage": result.advance_percentage,
+                "Decline_Percentage": result.decline_percentage,
+                "Advance_Decline_Ratio": (
+                    result.advance_decline_ratio
+                ),
+                "Above_EMA20_Percentage": (
+                    result.above_ema20_percentage
+                ),
+                "Above_EMA50_Percentage": (
+                    result.above_ema50_percentage
+                ),
+                "Above_EMA200_Percentage": (
+                    result.above_ema200_percentage
+                ),
+                "New_52W_Highs": result.new_52w_high_count,
+                "New_52W_Lows": result.new_52w_low_count,
+                "Bullish_Sectors": result.bullish_sectors,
+                "Bearish_Sectors": result.bearish_sectors,
+                "Breadth_Score": result.breadth_score,
+                "Breadth_Momentum": result.breadth_momentum,
+                "Breadth_Trend": result.breadth_trend,
+                "Breadth_Strength": result.breadth_strength,
+                "Breadth_Regime": result.breadth_regime,
+                "Risk_Environment": result.risk_environment,
+                "Internal_Market_Health": (
+                    result.internal_market_health
+                ),
+                "Participation_Quality": (
+                    result.participation_quality
+                ),
+                "Divergence_Risk": result.divergence_risk,
+                "Confidence": result.confidence,
+                "Expected_Behaviour": (
+                    result.expected_behaviour
+                ),
+                "Concise_Summary": result.concise_summary,
+                "Status": result.status,
+            }
+        ]
     )
 
     sector_dataframe = pd.DataFrame(
@@ -1617,7 +1850,9 @@ def export_result(
                 "Total_Stocks": sector.total_stocks,
                 "Advances": sector.advances,
                 "Declines": sector.declines,
-                "Advance_Percentage": sector.advance_percentage,
+                "Advance_Percentage": (
+                    sector.advance_percentage
+                ),
                 "Above_EMA20_Percentage": (
                     sector.above_ema20_percentage
                 ),
@@ -1652,7 +1887,9 @@ def export_result(
                 "Advances": segment.advances,
                 "Declines": segment.declines,
                 "Unchanged": segment.unchanged,
-                "Advance_Percentage": segment.advance_percentage,
+                "Advance_Percentage": (
+                    segment.advance_percentage
+                ),
                 "Above_EMA20_Percentage": (
                     segment.above_ema20_percentage
                 ),
@@ -1677,6 +1914,11 @@ def export_result(
                 result.warnings
             )
         }
+    )
+
+    summary_dataframe.to_csv(
+        csv_file,
+        index=False,
     )
 
     with pd.ExcelWriter(
@@ -1707,7 +1949,10 @@ def export_result(
             index=False,
         )
 
-    return summary_file, excel_file
+    return (
+        csv_file,
+        excel_file,
+    )
 
 
 # ==========================================================
@@ -1730,7 +1975,7 @@ def run_market_breadth_engine(
         sheet_name=sheet_name,
     )
 
-    total_input_rows = len(
+    input_rows = len(
         raw_dataframe
     )
 
@@ -1744,13 +1989,13 @@ def run_market_breadth_engine(
         prepared_dataframe
     )
 
-    total_stocks = len(
+    valid_stocks = len(
         breadth_dataframe
     )
 
-    if total_stocks == 0:
+    if valid_stocks == 0:
         raise RuntimeError(
-            "No valid stocks remain after breadth-data validation."
+            "No valid breadth records remain after validation."
         )
 
     advances = int(
@@ -1767,17 +2012,17 @@ def run_market_breadth_engine(
 
     advance_percentage = safe_percentage(
         advances,
-        total_stocks,
+        valid_stocks,
     )
 
     decline_percentage = safe_percentage(
         declines,
-        total_stocks,
+        valid_stocks,
     )
 
     unchanged_percentage = safe_percentage(
         unchanged,
-        total_stocks,
+        valid_stocks,
     )
 
     advance_decline_ratio = safe_ratio(
@@ -1799,17 +2044,17 @@ def run_market_breadth_engine(
 
     above_ema20_percentage = safe_percentage(
         above_ema20_count,
-        total_stocks,
+        valid_stocks,
     )
 
     above_ema50_percentage = safe_percentage(
         above_ema50_count,
-        total_stocks,
+        valid_stocks,
     )
 
     above_ema200_percentage = safe_percentage(
         above_ema200_count,
-        total_stocks,
+        valid_stocks,
     )
 
     new_52w_high_count = int(
@@ -1830,22 +2075,22 @@ def run_market_breadth_engine(
 
     new_52w_high_percentage = safe_percentage(
         new_52w_high_count,
-        total_stocks,
+        valid_stocks,
     )
 
     new_52w_low_percentage = safe_percentage(
         new_52w_low_count,
-        total_stocks,
+        valid_stocks,
     )
 
     near_52w_high_percentage = safe_percentage(
         near_52w_high_count,
-        total_stocks,
+        valid_stocks,
     )
 
     near_52w_low_percentage = safe_percentage(
         near_52w_low_count,
-        total_stocks,
+        valid_stocks,
     )
 
     high_volume_advances = int(
@@ -1868,16 +2113,24 @@ def run_market_breadth_engine(
     )
 
     if volume_breadth_ratio is None:
-        volume_participation = "INSUFFICIENT VOLUME DATA"
+        volume_participation = (
+            "INSUFFICIENT VOLUME DATA"
+        )
 
     elif volume_breadth_ratio >= 1.5:
-        volume_participation = "BULLISH VOLUME PARTICIPATION"
+        volume_participation = (
+            "BULLISH VOLUME PARTICIPATION"
+        )
 
     elif volume_breadth_ratio <= 0.67:
-        volume_participation = "BEARISH VOLUME PARTICIPATION"
+        volume_participation = (
+            "BEARISH VOLUME PARTICIPATION"
+        )
 
     else:
-        volume_participation = "BALANCED VOLUME PARTICIPATION"
+        volume_participation = (
+            "BALANCED VOLUME PARTICIPATION"
+        )
 
     sectors = analyse_sectors(
         breadth_dataframe
@@ -1899,59 +2152,51 @@ def run_market_breadth_engine(
         - bearish_sectors
     )
 
-    sector_participation_percentage = safe_percentage(
-        bullish_sectors,
-        len(sectors),
+    sector_participation_percentage = (
+        safe_percentage(
+            bullish_sectors,
+            len(sectors),
+        )
+        if sectors
+        else 0.0
     )
 
-    large_cap_dataframe = get_market_cap_segment(
+    large_cap_data = get_market_cap_segment(
         breadth_dataframe,
-        {
-            "LARGE CAP",
-            "LARGECAP",
-            "LARGE",
-        },
+        "LARGE CAP",
     )
 
-    mid_cap_dataframe = get_market_cap_segment(
+    mid_cap_data = get_market_cap_segment(
         breadth_dataframe,
-        {
-            "MID CAP",
-            "MIDCAP",
-            "MID",
-        },
+        "MID CAP",
     )
 
-    small_cap_dataframe = get_market_cap_segment(
+    small_cap_data = get_market_cap_segment(
         breadth_dataframe,
-        {
-            "SMALL CAP",
-            "SMALLCAP",
-            "SMALL",
-        },
+        "SMALL CAP",
     )
 
-    fno_dataframe = breadth_dataframe.loc[
+    fno_data = breadth_dataframe.loc[
         breadth_dataframe["Is_FnO"]
-    ]
+    ].copy()
 
     large_cap_breadth = analyse_segment(
-        large_cap_dataframe,
+        large_cap_data,
         "LARGE CAP",
     )
 
     mid_cap_breadth = analyse_segment(
-        mid_cap_dataframe,
+        mid_cap_data,
         "MID CAP",
     )
 
     small_cap_breadth = analyse_segment(
-        small_cap_dataframe,
+        small_cap_data,
         "SMALL CAP",
     )
 
     fno_breadth = analyse_segment(
-        fno_dataframe,
+        fno_data,
         "F&O",
     )
 
@@ -2025,28 +2270,38 @@ def run_market_breadth_engine(
         ),
     )
 
-    volume_data_available = (
-        "Volume" in raw_dataframe.columns
-        and "Average_Volume_20" in raw_dataframe.columns
+    volume_data_available = {
+        "Volume",
+        "Average_Volume_20",
+    }.issubset(
+        breadth_dataframe.columns
     )
 
     market_cap_data_available = (
         "Market_Cap_Category"
-        in raw_dataframe.columns
+        in breadth_dataframe.columns
+        and breadth_dataframe[
+            "Market_Cap_Category"
+        ].ne("UNCLASSIFIED").any()
     )
 
     fno_data_available = (
         "Is_FnO"
-        in raw_dataframe.columns
+        in breadth_dataframe.columns
+        and breadth_dataframe[
+            "Is_FnO"
+        ].any()
     )
 
     confidence = calculate_confidence(
-        valid_stocks=total_stocks,
+        valid_stocks=valid_stocks,
         invalid_rows=invalid_rows,
         sector_count=len(sectors),
-        has_volume_data=volume_data_available,
-        has_market_cap_data=market_cap_data_available,
-        has_fno_data=fno_data_available,
+        volume_data_available=volume_data_available,
+        market_cap_data_available=(
+            market_cap_data_available
+        ),
+        fno_data_available=fno_data_available,
     )
 
     expected_behaviour = determine_expected_behaviour(
@@ -2061,12 +2316,14 @@ def run_market_breadth_engine(
         breadth_strength=breadth_strength,
         breadth_regime=breadth_regime,
         risk_environment=risk_environment,
-        internal_health=internal_market_health,
+        internal_market_health=(
+            internal_market_health
+        ),
         confidence=confidence,
     )
 
     explanation = build_explanation(
-        total_stocks=total_stocks,
+        valid_stocks=valid_stocks,
         advances=advances,
         declines=declines,
         advance_percentage=advance_percentage,
@@ -2078,17 +2335,23 @@ def run_market_breadth_engine(
         breadth_score=breadth_score,
         breadth_regime=breadth_regime,
         risk_environment=risk_environment,
-        internal_health=internal_market_health,
-        participation_quality=participation_quality,
+        internal_market_health=(
+            internal_market_health
+        ),
+        participation_quality=(
+            participation_quality
+        ),
         divergence_risk=divergence_risk,
     )
 
     warnings = build_warnings(
-        valid_stocks=total_stocks,
+        valid_stocks=valid_stocks,
         invalid_rows=invalid_rows,
         sector_count=len(sectors),
         volume_data_available=volume_data_available,
-        market_cap_data_available=market_cap_data_available,
+        market_cap_data_available=(
+            market_cap_data_available
+        ),
         fno_data_available=fno_data_available,
         divergence_risk=divergence_risk,
         breadth_regime=breadth_regime,
@@ -2098,57 +2361,103 @@ def run_market_breadth_engine(
         requested_date=requested_date,
         analysis_date=requested_date,
         source_file=source_file,
-        total_stocks=total_input_rows,
-        valid_stocks=total_stocks,
+
+        input_rows=input_rows,
+        valid_stocks=valid_stocks,
         invalid_rows=invalid_rows,
+
         advances=advances,
         declines=declines,
         unchanged=unchanged,
+
         advance_percentage=advance_percentage,
         decline_percentage=decline_percentage,
         unchanged_percentage=unchanged_percentage,
         advance_decline_ratio=advance_decline_ratio,
+
         above_ema20_count=above_ema20_count,
         above_ema50_count=above_ema50_count,
         above_ema200_count=above_ema200_count,
-        above_ema20_percentage=above_ema20_percentage,
-        above_ema50_percentage=above_ema50_percentage,
-        above_ema200_percentage=above_ema200_percentage,
+
+        above_ema20_percentage=(
+            above_ema20_percentage
+        ),
+        above_ema50_percentage=(
+            above_ema50_percentage
+        ),
+        above_ema200_percentage=(
+            above_ema200_percentage
+        ),
+
         new_52w_high_count=new_52w_high_count,
         new_52w_low_count=new_52w_low_count,
         near_52w_high_count=near_52w_high_count,
         near_52w_low_count=near_52w_low_count,
-        new_52w_high_percentage=new_52w_high_percentage,
-        new_52w_low_percentage=new_52w_low_percentage,
-        near_52w_high_percentage=near_52w_high_percentage,
-        near_52w_low_percentage=near_52w_low_percentage,
-        high_volume_advances=high_volume_advances,
-        high_volume_declines=high_volume_declines,
-        volume_breadth_ratio=volume_breadth_ratio,
-        volume_participation=volume_participation,
+
+        new_52w_high_percentage=(
+            new_52w_high_percentage
+        ),
+        new_52w_low_percentage=(
+            new_52w_low_percentage
+        ),
+        near_52w_high_percentage=(
+            near_52w_high_percentage
+        ),
+        near_52w_low_percentage=(
+            near_52w_low_percentage
+        ),
+
+        high_volume_advances=(
+            high_volume_advances
+        ),
+        high_volume_declines=(
+            high_volume_declines
+        ),
+        volume_breadth_ratio=(
+            volume_breadth_ratio
+        ),
+        volume_participation=(
+            volume_participation
+        ),
+
         bullish_sectors=bullish_sectors,
         bearish_sectors=bearish_sectors,
         neutral_sectors=neutral_sectors,
         sector_participation_percentage=(
             sector_participation_percentage
         ),
-        large_cap_breadth=large_cap_breadth,
-        mid_cap_breadth=mid_cap_breadth,
-        small_cap_breadth=small_cap_breadth,
+
+        large_cap_breadth=(
+            large_cap_breadth
+        ),
+        mid_cap_breadth=(
+            mid_cap_breadth
+        ),
+        small_cap_breadth=(
+            small_cap_breadth
+        ),
         fno_breadth=fno_breadth,
+
         breadth_score=breadth_score,
         breadth_momentum=breadth_momentum,
         breadth_trend=breadth_trend,
         breadth_strength=breadth_strength,
         breadth_regime=breadth_regime,
+
         risk_environment=risk_environment,
-        internal_market_health=internal_market_health,
-        participation_quality=participation_quality,
+        internal_market_health=(
+            internal_market_health
+        ),
+        participation_quality=(
+            participation_quality
+        ),
         divergence_risk=divergence_risk,
+
         confidence=confidence,
         expected_behaviour=expected_behaviour,
         concise_summary=concise_summary,
         explanation=explanation,
+
         sectors=sectors,
         warnings=warnings,
         status="SUCCESS",
@@ -2156,7 +2465,7 @@ def run_market_breadth_engine(
 
     if export:
         export_result(
-            result=result
+            result
         )
 
     return result
@@ -2166,35 +2475,23 @@ def run_market_breadth_engine(
 # DISPLAY HELPERS
 # ==========================================================
 
-def format_optional_ratio(
-    value: float | None,
-) -> str:
-    """
-    Format an optional ratio.
-    """
-
-    if value is None:
-        return "NOT AVAILABLE"
-
-    return f"{value:.2f}"
-
-
 def display_segment(
     segment: SegmentBreadth | None,
 ) -> None:
     """
-    Display one segment breadth result.
+    Display one segment.
     """
 
     if segment is None:
         return
 
     print(
-        f"{segment.name:<20}: "
+        f"{segment.name:<25}: "
         f"{segment.classification} | "
         f"Score {segment.score}% | "
         f"Advances {segment.advance_percentage:.2f}% | "
-        f"Above EMA200 {segment.above_ema200_percentage:.2f}%"
+        f"Above EMA200 "
+        f"{segment.above_ema200_percentage:.2f}%"
     )
 
 
@@ -2206,7 +2503,7 @@ def display_result(
     result: MarketBreadthResult,
 ) -> None:
     """
-    Display the market-breadth terminal report.
+    Display the complete market-breadth report.
     """
 
     print()
@@ -2224,7 +2521,7 @@ def display_result(
     print("-" * 104)
     print(
         f"Input Rows                        : "
-        f"{result.total_stocks:,}"
+        f"{result.input_rows:,}"
     )
     print(
         f"Valid Stocks                      : "
@@ -2325,6 +2622,10 @@ def display_result(
     print("SECTOR PARTICIPATION")
     print("-" * 104)
     print(
+        f"Classified Sectors                : "
+        f"{len(result.sectors)}"
+    )
+    print(
         f"Bullish Sectors                   : "
         f"{result.bullish_sectors}"
     )
@@ -2344,18 +2645,23 @@ def display_result(
 
     print("MARKET SEGMENTS")
     print("-" * 104)
+
     display_segment(
         result.large_cap_breadth
     )
+
     display_segment(
         result.mid_cap_breadth
     )
+
     display_segment(
         result.small_cap_breadth
     )
+
     display_segment(
         result.fno_breadth
     )
+
     print("-" * 104)
 
     print("BREADTH CLASSIFICATION")
@@ -2415,33 +2721,43 @@ def display_result(
     print("TOP BULLISH SECTORS")
     print("-" * 104)
 
-    for sector in result.sectors[:5]:
-        print(
-            f"{sector.sector:<30}: "
-            f"{sector.classification} | "
-            f"Score {sector.score}%"
-        )
+    if result.sectors:
+        for sector in result.sectors[:5]:
+            print(
+                f"{sector.sector:<35}: "
+                f"{sector.classification} | "
+                f"Score {sector.score}% | "
+                f"Stocks {sector.total_stocks}"
+            )
+    else:
+        print("No classified sectors available.")
 
     print("-" * 104)
     print("WEAKEST SECTORS")
     print("-" * 104)
 
-    for sector in result.sectors[-5:]:
-        print(
-            f"{sector.sector:<30}: "
-            f"{sector.classification} | "
-            f"Score {sector.score}%"
-        )
+    if result.sectors:
+        for sector in result.sectors[-5:]:
+            print(
+                f"{sector.sector:<35}: "
+                f"{sector.classification} | "
+                f"Score {sector.score}% | "
+                f"Stocks {sector.total_stocks}"
+            )
+    else:
+        print("No classified sectors available.")
 
     print("-" * 104)
     print("WARNINGS")
     print("-" * 104)
 
-    for number, warning in enumerate(
+    for warning_number, warning in enumerate(
         result.warnings,
         start=1,
     ):
-        print(f"{number}. {warning}")
+        print(
+            f"{warning_number}. {warning}"
+        )
 
     print("-" * 104)
     print("EXPLANATION")
@@ -2463,26 +2779,11 @@ def display_result(
 # COMMAND LINE
 # ==========================================================
 
-def normalize_sheet_argument(
-    value: object,
-) -> str | int:
-    """
-    Convert a numeric sheet argument into an integer.
-    """
-
-    text = str(value).strip()
-
-    if text.isdigit():
-        return int(text)
-
-    return text
-
-
 def parse_date(
     value: str,
 ) -> date:
     """
-    Convert YYYY-MM-DD text into a date.
+    Parse a YYYY-MM-DD date.
     """
 
     try:
@@ -2497,6 +2798,21 @@ def parse_date(
         ) from exc
 
 
+def normalize_sheet_argument(
+    value: object,
+) -> str | int:
+    """
+    Convert numeric worksheet text into an integer.
+    """
+
+    text = str(value).strip()
+
+    if text.isdigit():
+        return int(text)
+
+    return text
+
+
 def parse_arguments() -> argparse.Namespace:
     """
     Read command-line arguments.
@@ -2504,8 +2820,8 @@ def parse_arguments() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Analyse NSE market breadth using a prepared "
-            "CSV or Excel market-universe snapshot."
+            "Analyse AQSD NSE market breadth from an "
+            "enriched breadth snapshot."
         )
     )
 
@@ -2520,7 +2836,7 @@ def parse_arguments() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_INPUT_FILE,
         help=(
-            "Path to the market-breadth CSV or Excel file. "
+            "Path to breadth snapshot CSV or Excel file. "
             f"Default: {DEFAULT_INPUT_FILE}"
         ),
     )
@@ -2528,16 +2844,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--sheet",
         default=0,
-        help=(
-            "Excel worksheet name or zero-based worksheet number. "
-            "Default: first worksheet."
-        ),
+        help="Worksheet name or zero-based worksheet number.",
     )
 
     parser.add_argument(
         "--no-export",
         action="store_true",
-        help="Do not create CSV and Excel output files.",
+        help="Run without producing output files.",
     )
 
     return parser.parse_args()
