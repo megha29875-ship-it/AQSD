@@ -1,10 +1,10 @@
 {
     "module_id": "DAQ-002",
-    "module_version": "1.0.0",
+    "module_version": "1.1.0",
     "source": "NSE",
     "trade_date": "2026-07-30",
-    "run_started_at": "2026-07-31T20:19:52+05:30",
-    "run_finished_at": "2026-07-31T20:19:53+05:30",
+    "run_started_at": "2026-07-31T22:21:20+05:30",
+    "run_finished_at": "2026-07-31T22:21:20+05:30",
     "output_directory": "C:\\Users\\megha\\AQSD\\Data\\Raw\\NSE\\Participant\\2026\\07\\30",
     "reports_requested": 2,
     "reports_successful": 2,
@@ -19,7 +19,7 @@
             "status": "SUCCESS",
             "file_size_bytes": 963,
             "sha256": "f9de521b645550730e465125b5e603ff22de7dce4adb39348baba36cb12317f9",
-            "message": "SUCCESS"
+            "message": "SKIPPED_ALREADY_DOWNLOADED"
         },
         {
             "report_id": "PARTICIPANT_VOLUME",
@@ -29,7 +29,7 @@
             "status": "SUCCESS",
             "file_size_bytes": 968,
             "sha256": "059733d32d68262259ce7063ce47dbc2891602d98765cca5c57b502e3e4f31fe",
-            "message": "SUCCESS"
+            "message": "SKIPPED_ALREADY_DOWNLOADED"
         }
     ]
 }

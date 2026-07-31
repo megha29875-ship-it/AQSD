@@ -2,125 +2,124 @@
 AQSD
 Trading Calendar Engine
 
-Module    : trading_calendar.py
-Module ID : CORE-005A
-Version   : 1.0.0
-Author    : AQSD
-Status    : Production
+Module : DAQ-006
+Version: 1.0.0
 
 Description
 -----------
-Provides trading-day calculations for AQSD.
+Provides trading-day utilities for AQSD.
+
+Current Features
+----------------
+✓ Weekend detection
+✓ Trading day detection
+✓ Previous trading day
+✓ Next trading day
+
+Future Features
+---------------
+- NSE Holiday Calendar
+- Weekly Expiry
+- Monthly Expiry
+- Muhurat Trading
+- Half Trading Days
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-import pandas as pd
-
-from .constants import CONFIG_DIR
+from datetime import date, timedelta
 
 
-class TradingCalendar:
+# ==========================================================
+# WEEKEND
+# ==========================================================
+
+def is_weekend(check_date: date) -> bool:
     """
-    NSE Trading Calendar
+    Return True if Saturday or Sunday.
+    """
+    return check_date.weekday() >= 5
+
+
+# ==========================================================
+# HOLIDAY
+# ==========================================================
+
+def is_holiday(check_date: date) -> bool:
+    """
+    Placeholder.
+
+    Version 1.0:
+        No holiday list yet.
     """
 
-    def __init__(self, calendar_file: str = "nse_calendar_2026.csv") -> None:
+    return False
 
-        self.calendar_path = CONFIG_DIR / calendar_file
 
-        self.calendar = self._load_calendar()
+# ==========================================================
+# TRADING DAY
+# ==========================================================
 
-    def _load_calendar(self) -> pd.DataFrame:
+def is_trading_day(check_date: date) -> bool:
+    """
+    Determine whether the given date is a trading day.
+    """
 
-        if not self.calendar_path.exists():
+    if is_weekend(check_date):
+        return False
 
-            raise FileNotFoundError(
-                f"Trading calendar not found : {self.calendar_path}"
-            )
+    if is_holiday(check_date):
+        return False
 
-        df = pd.read_csv(
-            self.calendar_path,
-            parse_dates=["Date"],
-        )
+    return True
 
-        df = df.sort_values("Date").reset_index(drop=True)
 
-        return df
+# ==========================================================
+# PREVIOUS TRADING DAY
+# ==========================================================
 
-    def is_trading_day(self, date) -> bool:
+def previous_trading_day(check_date: date) -> date:
+    """
+    Return previous trading day.
+    """
 
-        date = pd.Timestamp(date).normalize()
+    current = check_date - timedelta(days=1)
 
-        row = self.calendar.loc[
-            self.calendar["Date"] == date
-        ]
+    while not is_trading_day(current):
+        current -= timedelta(days=1)
 
-        if row.empty:
-            return False
+    return current
 
-        return bool(row.iloc[0]["Trading"])
 
-    def is_weekend(self, date) -> bool:
+# ==========================================================
+# NEXT TRADING DAY
+# ==========================================================
 
-        return pd.Timestamp(date).weekday() >= 5
+def next_trading_day(check_date: date) -> date:
+    """
+    Return next trading day.
+    """
 
-    def is_holiday(self, date) -> bool:
+    current = check_date + timedelta(days=1)
 
-        date = pd.Timestamp(date).normalize()
+    while not is_trading_day(current):
+        current += timedelta(days=1)
 
-        row = self.calendar.loc[
-            self.calendar["Date"] == date
-        ]
+    return current
 
-        if row.empty:
-            return False
 
-        return bool(row.iloc[0]["Holiday"])
+# ==========================================================
+# LATEST TRADING DAY
+# ==========================================================
 
-    def previous_trading_day(self, date):
+def latest_trading_day(today: date) -> date:
+    """
+    Return today's trading day if open.
 
-        date = pd.Timestamp(date).normalize()
+    Otherwise return previous trading day.
+    """
 
-        df = self.calendar[
-            (self.calendar["Date"] < date)
-            & (self.calendar["Trading"])
-        ]
+    if is_trading_day(today):
+        return today
 
-        if df.empty:
-            return None
-
-        return df.iloc[-1]["Date"]
-
-    def next_trading_day(self, date):
-
-        date = pd.Timestamp(date).normalize()
-
-        df = self.calendar[
-            (self.calendar["Date"] > date)
-            & (self.calendar["Trading"])
-        ]
-
-        if df.empty:
-            return None
-
-        return df.iloc[0]["Date"]
-
-    def trading_days_between(
-        self,
-        start_date,
-        end_date,
-    ) -> int:
-
-        start = pd.Timestamp(start_date).normalize()
-
-        end = pd.Timestamp(end_date).normalize()
-
-        df = self.calendar[
-            (self.calendar["Date"] >= start)
-            & (self.calendar["Date"] <= end)
-            & (self.calendar["Trading"])
-        ]
-
-        return len(df)
+    return previous_trading_day(today)
