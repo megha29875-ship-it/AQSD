@@ -3,7 +3,7 @@ AQSD
 NSE Historical F&O Downloader
 
 Module : NHF-001
-Version: 1.1.0
+Version: 1.2.0
 Author : AQSD
 
 Purpose
@@ -66,39 +66,30 @@ from typing import Final
 import pandas as pd
 import requests
 
+from Scripts.aqsd_core.paths import (
+    NSE_DERIVATIVES_RAW_DIR,
+    OUTPUT_DIR,
+    PROJECT_ROOT,
+)
+
 
 # ==========================================================
 # MODULE SETTINGS
 # ==========================================================
 
 MODULE_ID: Final[str] = "NHF-001"
-MODULE_VERSION: Final[str] = "1.1.0"
+MODULE_VERSION: Final[str] = "1.2.0"
 
-BASE_DIR: Final[Path] = (
-    Path(__file__).resolve().parents[2]
-)
-
-DATA_DIR: Final[Path] = (
-    BASE_DIR
-    / "Data"
-)
-
-OUTPUT_DIR: Final[Path] = (
-    BASE_DIR
-    / "Output"
-)
+BASE_DIR: Final[Path] = PROJECT_ROOT
 
 TRADING_CALENDAR_FILE: Final[Path] = (
-    DATA_DIR
+    BASE_DIR
+    / "Data"
     / "NSE_Trading_Calendar.csv"
 )
 
-RAW_ROOT: Final[Path] = (
-    DATA_DIR
-    / "Raw"
-    / "NSE"
-    / "Derivatives"
-)
+RAW_ROOT: Final[Path] = NSE_DERIVATIVES_RAW_DIR
+
 
 AUDIT_FILE: Final[Path] = (
     OUTPUT_DIR

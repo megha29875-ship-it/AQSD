@@ -3,7 +3,7 @@ AQSD
 NSE Trading Calendar Builder
 
 Module : NTC-001
-Version: 1.0.0
+Version: 1.1.0
 Author : AQSD
 
 Purpose
@@ -58,7 +58,7 @@ import requests
 # ==========================================================
 
 MODULE_ID: Final[str] = "NTC-001"
-MODULE_VERSION: Final[str] = "1.0.0"
+MODULE_VERSION: Final[str] = "1.1.0"
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 
@@ -95,13 +95,123 @@ DEFAULT_START_DATE: Final[date] = date(
     1,
 )
 
-DEFAULT_END_DATE: Final[date] = date(
-    2027,
-    12,
-    31,
-)
+DEFAULT_END_DATE: Final[date] = date.today()
 
 REQUEST_TIMEOUT: Final[int] = 30
+
+
+# ==========================================================
+# VERIFIED NSE F&O HISTORICAL HOLIDAY ARCHIVE
+# ==========================================================
+#
+# Purpose
+# -------
+# NSE's live holiday-master endpoint is primarily intended for
+# current exchange holiday publication. Historical backfills must
+# not assume that the live API contains every prior calendar year.
+#
+# These records are transcribed from official NSE F&O circulars
+# and are used as a deterministic historical archive.
+#
+# Official NSE F&O circulars:
+# 2024 : NSE/FAOP/59723
+# 2025 : NSE/FAOP/65588
+# 2026 : NSE/FAOP/71777
+#
+# Special Muhurat sessions are listed separately because those
+# dates are exchange holidays for the normal session but still
+# contain a special trading session and may have market data.
+# ==========================================================
+
+VERIFIED_FO_HOLIDAYS: Final[
+    dict[int, tuple[tuple[str, str], ...]]
+] = {
+    2024: (
+        ("2024-01-26", "Republic Day"),
+        ("2024-03-08", "Mahashivratri"),
+        ("2024-03-25", "Holi"),
+        ("2024-03-29", "Good Friday"),
+        ("2024-04-11", "Id-Ul-Fitr (Ramadan Eid)"),
+        ("2024-04-17", "Shri Ram Navmi"),
+        ("2024-05-01", "Maharashtra Day"),
+        ("2024-06-17", "Bakri Id"),
+        ("2024-07-17", "Moharram"),
+        (
+            "2024-08-15",
+            "Independence Day/Parsi New Year",
+        ),
+        ("2024-10-02", "Mahatma Gandhi Jayanti"),
+        ("2024-11-01", "Diwali Laxmi Pujan"),
+        ("2024-11-15", "Gurunanak Jayanti"),
+        ("2024-12-25", "Christmas"),
+    ),
+    2025: (
+        ("2025-02-26", "Mahashivratri"),
+        ("2025-03-14", "Holi"),
+        ("2025-03-31", "Id-Ul-Fitr (Ramadan Eid)"),
+        ("2025-04-10", "Shri Mahavir Jayanti"),
+        (
+            "2025-04-14",
+            "Dr. Baba Saheb Ambedkar Jayanti",
+        ),
+        ("2025-04-18", "Good Friday"),
+        ("2025-05-01", "Maharashtra Day"),
+        ("2025-08-15", "Independence Day"),
+        ("2025-08-27", "Ganesh Chaturthi"),
+        (
+            "2025-10-02",
+            "Mahatma Gandhi Jayanti/Dussehra",
+        ),
+        ("2025-10-21", "Diwali Laxmi Pujan"),
+        ("2025-10-22", "Diwali-Balipratipada"),
+        (
+            "2025-11-05",
+            "Prakash Gurpurb Sri Guru Nanak Dev",
+        ),
+        ("2025-12-25", "Christmas"),
+    ),
+    2026: (
+        ("2026-01-26", "Republic Day"),
+        ("2026-03-03", "Holi"),
+        ("2026-03-26", "Shri Ram Navami"),
+        ("2026-03-31", "Shri Mahavir Jayanti"),
+        ("2026-04-03", "Good Friday"),
+        (
+            "2026-04-14",
+            "Dr. Baba Saheb Ambedkar Jayanti",
+        ),
+        ("2026-05-01", "Maharashtra Day"),
+        ("2026-05-28", "Bakri Id"),
+        ("2026-06-26", "Muharram"),
+        ("2026-09-14", "Ganesh Chaturthi"),
+        ("2026-10-02", "Mahatma Gandhi Jayanti"),
+        ("2026-10-20", "Dussehra"),
+        ("2026-11-10", "Diwali-Balipratipada"),
+        (
+            "2026-11-24",
+            "Prakash Gurpurb Sri Guru Nanak Dev",
+        ),
+        ("2026-12-25", "Christmas"),
+    ),
+}
+
+
+SPECIAL_TRADING_SESSIONS: Final[
+    dict[str, str]
+] = {
+    "2024-11-01": "Muhurat Trading",
+    "2025-10-21": "Muhurat Trading",
+    "2026-11-08": "Muhurat Trading",
+}
+
+
+VERIFIED_CIRCULAR_BY_YEAR: Final[
+    dict[int, str]
+] = {
+    2024: "NSE/FAOP/59723",
+    2025: "NSE/FAOP/65588",
+    2026: "NSE/FAOP/71777",
+}
 
 
 # ==========================================================
@@ -333,6 +443,218 @@ def extract_fo_holidays(
     return frame
 
 
+
+# ==========================================================
+# HISTORICAL HOLIDAY ARCHIVE / VALIDATION
+# ==========================================================
+
+def verified_historical_holidays() -> pd.DataFrame:
+    """
+    Return deterministic NSE F&O holiday records transcribed
+    from official NSE F&O circulars.
+    """
+
+    rows: list[dict[str, object]] = []
+
+    for year, records in VERIFIED_FO_HOLIDAYS.items():
+
+        circular = VERIFIED_CIRCULAR_BY_YEAR.get(
+            year,
+            "NSE OFFICIAL F&O CIRCULAR",
+        )
+
+        for holiday_date, description in records:
+
+            parsed = datetime.strptime(
+                holiday_date,
+                "%Y-%m-%d",
+            ).date()
+
+            rows.append(
+                {
+                    "holiday_date": holiday_date,
+                    "weekday": parsed.strftime("%A"),
+                    "description": description,
+                    "segment": "FO",
+                    "source": (
+                        "NSE VERIFIED F&O CIRCULAR "
+                        f"{circular}"
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def merge_holiday_sources(
+    *,
+    live_holidays: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Merge live NSE holiday-master records with AQSD's verified
+    NSE historical circular archive.
+
+    Duplicate dates are resolved in favour of the verified
+    circular archive to keep historical backfills deterministic.
+    """
+
+    verified = verified_historical_holidays()
+
+    combined = pd.concat(
+        [
+            live_holidays,
+            verified,
+        ],
+        ignore_index=True,
+    )
+
+    combined["holiday_date"] = (
+        combined["holiday_date"]
+        .astype(str)
+        .str.strip()
+    )
+
+    combined = (
+        combined
+        .drop_duplicates(
+            subset=["holiday_date"],
+            keep="last",
+        )
+        .sort_values("holiday_date")
+        .reset_index(drop=True)
+    )
+
+    return combined
+
+
+def validate_year_coverage(
+    *,
+    start_date: date,
+    end_date: date,
+    holidays: pd.DataFrame,
+) -> None:
+    """
+    Fail closed when AQSD lacks an official holiday source for a
+    historical calendar year.
+
+    Future years are also rejected unless the live NSE holiday
+    master already contains records for that year.
+    """
+
+    required_years = set(
+        range(
+            start_date.year,
+            end_date.year + 1,
+        )
+    )
+
+    available_years: set[int] = set()
+
+    for value in holidays["holiday_date"].astype(str):
+
+        try:
+            available_years.add(
+                datetime.strptime(
+                    value,
+                    "%Y-%m-%d",
+                ).year
+            )
+        except ValueError:
+            continue
+
+    missing_years = sorted(
+        required_years
+        - available_years
+    )
+
+    if missing_years:
+        raise RuntimeError(
+            "NSE F&O holiday coverage is unavailable for "
+            "calendar year(s): "
+            + ", ".join(
+                str(year)
+                for year in missing_years
+            )
+            + ". AQSD will not fabricate trading sessions."
+        )
+
+
+def validate_calendar_output(
+    *,
+    calendar: pd.DataFrame,
+    holidays: pd.DataFrame,
+) -> None:
+    """
+    Validate the generated trading calendar before saving it.
+    """
+
+    if calendar.empty:
+        raise RuntimeError(
+            "Generated NSE trading calendar is empty."
+        )
+
+    required_columns = {
+        "trade_date",
+        "is_trading_day",
+        "is_weekend",
+        "is_nse_holiday",
+    }
+
+    missing_columns = (
+        required_columns
+        - set(calendar.columns)
+    )
+
+    if missing_columns:
+        raise RuntimeError(
+            "Generated trading calendar is missing columns: "
+            + ", ".join(
+                sorted(missing_columns)
+            )
+        )
+
+    duplicate_dates = (
+        calendar["trade_date"]
+        .astype(str)
+        .duplicated()
+        .any()
+    )
+
+    if duplicate_dates:
+        raise RuntimeError(
+            "Generated trading calendar contains duplicate dates."
+        )
+
+    # Official holidays must not be normal trading sessions,
+    # except an explicitly declared special trading session.
+    holiday_dates = set(
+        holidays["holiday_date"]
+        .astype(str)
+    )
+
+    for holiday_date in holiday_dates:
+
+        if holiday_date in SPECIAL_TRADING_SESSIONS:
+            continue
+
+        row = calendar.loc[
+            calendar["trade_date"]
+            .astype(str)
+            .eq(holiday_date)
+        ]
+
+        if row.empty:
+            continue
+
+        if bool(
+            row.iloc[0]["is_trading_day"]
+        ):
+            raise RuntimeError(
+                "Holiday validation failed for "
+                f"{holiday_date}."
+            )
+
+
 # ==========================================================
 # CALENDAR BUILDER
 # ==========================================================
@@ -344,7 +666,14 @@ def build_trading_calendar(
     holidays: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Build the complete calendar and mark NSE trading sessions.
+    Build the complete calendar and mark NSE F&O trading sessions.
+
+    Rules
+    -----
+    1. Monday-Friday are potential normal sessions.
+    2. Official NSE F&O holidays are excluded.
+    3. Explicit special sessions (for example Muhurat Trading)
+       override weekend/holiday closure.
     """
 
     if end_date < start_date:
@@ -358,6 +687,7 @@ def build_trading_calendar(
     ] = {}
 
     for _, row in holidays.iterrows():
+
         holiday_lookup[
             str(
                 row[
@@ -378,13 +708,10 @@ def build_trading_calendar(
     current = start_date
 
     while current <= end_date:
-        date_text = (
-            current.isoformat()
-        )
 
-        weekday_number = (
-            current.weekday()
-        )
+        date_text = current.isoformat()
+
+        weekday_number = current.weekday()
 
         is_weekend = (
             weekday_number >= 5
@@ -401,20 +728,36 @@ def build_trading_calendar(
             holiday_description
         )
 
-        is_trading_day = (
-            not is_weekend
-            and not is_nse_holiday
+        special_session_description = (
+            SPECIAL_TRADING_SESSIONS.get(
+                date_text,
+                "",
+            )
         )
+
+        is_special_session = bool(
+            special_session_description
+        )
+
+        if is_special_session:
+            is_trading_day = True
+            session_type = "SPECIAL"
+        else:
+            is_trading_day = (
+                not is_weekend
+                and not is_nse_holiday
+            )
+            session_type = (
+                "NORMAL"
+                if is_trading_day
+                else "CLOSED"
+            )
 
         rows.append(
             {
-                "trade_date": (
-                    date_text
-                ),
-                "weekday": (
-                    current.strftime(
-                        "%A"
-                    )
+                "trade_date": date_text,
+                "weekday": current.strftime(
+                    "%A"
                 ),
                 "is_trading_day": (
                     is_trading_day
@@ -428,9 +771,18 @@ def build_trading_calendar(
                 "holiday_description": (
                     holiday_description
                 ),
+                "is_special_session": (
+                    is_special_session
+                ),
+                "special_session_description": (
+                    special_session_description
+                ),
+                "session_type": (
+                    session_type
+                ),
                 "segment": "FO",
                 "source": (
-                    "NSE HOLIDAY MASTER"
+                    "NSE OFFICIAL F&O HOLIDAY SOURCES"
                 ),
             }
         )
@@ -439,9 +791,14 @@ def build_trading_calendar(
             days=1
         )
 
-    return pd.DataFrame(
-        rows
+    frame = pd.DataFrame(rows)
+
+    validate_calendar_output(
+        calendar=frame,
+        holidays=holidays,
     )
+
+    return frame
 
 
 # ==========================================================
@@ -482,6 +839,9 @@ def save_outputs(
             "is_weekend",
             "is_nse_holiday",
             "holiday_description",
+            "is_special_session",
+            "special_session_description",
+            "session_type",
             "segment",
             "source",
         ]
@@ -559,10 +919,20 @@ def run_builder(
         download_holiday_master()
     )
 
-    holidays = (
+    live_holidays = (
         extract_fo_holidays(
             payload
         )
+    )
+
+    holidays = merge_holiday_sources(
+        live_holidays=live_holidays,
+    )
+
+    validate_year_coverage(
+        start_date=start_date,
+        end_date=end_date,
+        holidays=holidays,
     )
 
     calendar = (
@@ -784,7 +1154,7 @@ def parse_arguments() -> argparse.Namespace:
         required=False,
         help=(
             "Calendar end date YYYY-MM-DD. "
-            "Default 2027-12-31."
+            "Default is today."
         ),
     )
 

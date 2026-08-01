@@ -3,7 +3,7 @@ AQSD
 NSE F&O Bhavcopy Parser
 
 Module : NFP-001
-Version: 1.0.2
+Version: 1.2.0
 Author : AQSD
 
 Purpose
@@ -14,12 +14,12 @@ derivatives dataset.
 
 Input
 -----
-Data/Raw/NSE/Derivatives/YYYY-MM-DD/
+D:/AQSD_DATA/Raw/NSE/Derivatives/YYYY-MM-DD/
     BhavCopy_NSE_FO_0_0_0_YYYYMMDD_F_0000.csv.zip
 
 Output
 ------
-Data/Processed/NSE/Derivatives/YYYY-MM-DD/
+D:/AQSD_DATA/Processed/NSE/Derivatives/YYYY-MM-DD/
     fno_contracts.csv
     futures.csv
     options.csv
@@ -48,32 +48,30 @@ from typing import Final
 
 import pandas as pd
 
+from Scripts.aqsd_core.paths import (
+    NSE_DERIVATIVES_PROCESSED_DIR,
+    NSE_DERIVATIVES_RAW_DIR,
+    OUTPUT_DIR,
+    PROJECT_ROOT,
+    ensure_aqsd_directories,
+)
+
 
 # ==========================================================
 # MODULE SETTINGS
 # ==========================================================
 
 MODULE_ID: Final[str] = "NFP-001"
-MODULE_VERSION: Final[str] = "1.0.2"
-
-BASE_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-
-DATA_DIR: Final[Path] = BASE_DIR / "Data"
-OUTPUT_DIR: Final[Path] = BASE_DIR / "Output"
+MODULE_VERSION: Final[str] = "1.2.0"
 
 RAW_ROOT: Final[Path] = (
-    DATA_DIR
-    / "Raw"
-    / "NSE"
-    / "Derivatives"
+    NSE_DERIVATIVES_RAW_DIR
 )
 
 PROCESSED_ROOT: Final[Path] = (
-    DATA_DIR
-    / "Processed"
-    / "NSE"
-    / "Derivatives"
+    NSE_DERIVATIVES_PROCESSED_DIR
 )
+
 
 AUDIT_FILE: Final[Path] = (
     OUTPUT_DIR
@@ -86,6 +84,12 @@ SUMMARY_FILE: Final[Path] = (
 )
 
 DEFAULT_SESSIONS: Final[int] = 3
+
+TRADING_CALENDAR_FILE: Final[Path] = (
+    PROJECT_ROOT
+    / "Data"
+    / "NSE_Trading_Calendar.csv"
+)
 
 
 # ==========================================================
@@ -113,8 +117,20 @@ def parse_date(
 
 def ensure_directories() -> None:
     """
-    Create processed/output directories.
+    Create AQSD central data/output directories.
+
+    Storage architecture:
+        C: project / code / reports
+        D: primary market data
+        E: backup
     """
+
+    ensure_aqsd_directories()
+
+    RAW_ROOT.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     PROCESSED_ROOT.mkdir(
         parents=True,
@@ -1113,6 +1129,10 @@ def save_processed_outputs(
 def available_raw_dates() -> list[date]:
     """
     Discover date folders that contain raw NSE data.
+
+    This function is retained for status/diagnostics only.
+    It is NOT the authoritative source for parser session
+    resolution.
     """
 
     if not RAW_ROOT.exists():
@@ -1143,36 +1163,150 @@ def available_raw_dates() -> list[date]:
     )
 
 
+def load_trading_calendar() -> pd.DataFrame:
+    """
+    Load the AQSD authoritative NSE F&O trading calendar.
+
+    The parser must never infer trading sessions from raw folder
+    names because raw storage can legitimately contain historical
+    holiday folders or other non-session artifacts.
+    """
+
+    if not TRADING_CALENDAR_FILE.exists():
+        raise FileNotFoundError(
+            "AQSD NSE trading calendar not found:\n"
+            f"{TRADING_CALENDAR_FILE}"
+        )
+
+    frame = pd.read_csv(
+        TRADING_CALENDAR_FILE,
+        low_memory=False,
+    )
+
+    if "trade_date" not in frame.columns:
+        raise RuntimeError(
+            "AQSD NSE trading calendar is missing "
+            "required column: trade_date."
+        )
+
+    frame = frame.copy()
+
+    frame["trade_date"] = pd.to_datetime(
+        frame["trade_date"],
+        errors="coerce",
+    )
+
+    frame = frame.dropna(
+        subset=["trade_date"]
+    )
+
+    # NTC-001 saves only valid trading sessions, but if a future
+    # calendar format includes non-trading rows we still fail safe.
+    if "is_trading_day" in frame.columns:
+
+        trading_values = (
+            frame["is_trading_day"]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        frame = frame.loc[
+            trading_values.isin(
+                {
+                    "true",
+                    "1",
+                    "yes",
+                }
+            )
+        ].copy()
+
+    frame = (
+        frame
+        .sort_values(
+            "trade_date"
+        )
+        .drop_duplicates(
+            subset=[
+                "trade_date"
+            ],
+            keep="last",
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+    if frame.empty:
+        raise RuntimeError(
+            "AQSD NSE trading calendar contains no "
+            "valid trading sessions."
+        )
+
+    return frame
+
+
 def resolve_dates(
     *,
     sessions: int,
     end_date: date | None,
 ) -> list[date]:
     """
-    Resolve raw dates to parse.
+    Resolve dates to parse from the AQSD authoritative
+    NSE F&O trading calendar.
+
+    Rules
+    -----
+    1. Trading calendar is the authoritative session source.
+    2. Raw folders are never used to decide whether a date is a
+       trading session.
+    3. --end-date is applied to the authoritative calendar.
+    4. The final N sessions are selected from the filtered calendar.
+    5. Missing raw files for a valid session remain real failures;
+       AQSD does not fabricate or silently skip them.
     """
 
-    dates = available_raw_dates()
+    requested_sessions = max(
+        1,
+        int(
+            sessions
+        ),
+    )
+
+    frame = load_trading_calendar()
 
     if end_date is not None:
-        dates = [
-            value
-            for value in dates
-            if value <= end_date
-        ]
 
-    if not dates:
+        frame = frame.loc[
+            frame[
+                "trade_date"
+            ].dt.date
+            <= end_date
+        ].copy()
+
+    if frame.empty:
         raise RuntimeError(
-            "No raw NSE derivative dates are available."
+            "No AQSD NSE trading sessions are available "
+            "for the requested end date."
         )
 
-    return dates[
-        -max(
-            1,
-            int(
-                sessions
-            ),
-        ):
+    if len(frame) < requested_sessions:
+        raise RuntimeError(
+            "AQSD NSE trading calendar does not contain "
+            "enough sessions for this parser request. "
+            f"Requested={requested_sessions}, "
+            f"Available={len(frame)}."
+        )
+
+    selected = frame.tail(
+        requested_sessions
+    )
+
+    return [
+        value.date()
+        for value in selected[
+            "trade_date"
+        ]
     ]
 
 
@@ -1438,6 +1572,14 @@ def run_parser(
             PROCESSED_ROOT
         ),
 
+        "trading_calendar_file": str(
+            TRADING_CALENDAR_FILE
+        ),
+
+        "session_source": (
+            "AQSD NSE TRADING CALENDAR"
+        ),
+
         "audit_file": str(
             AUDIT_FILE
         ),
@@ -1486,6 +1628,18 @@ def display_summary(
     print(
         f"Version                   : "
         f"{MODULE_VERSION}"
+    )
+
+    print(
+        f"Trading Calendar          : "
+        f"{TRADING_CALENDAR_FILE}"
+    )
+
+    print(f"Calendar Exists          : {'YES' if TRADING_CALENDAR_FILE.exists() else 'NO'}")
+
+    print(
+        f"Calendar Trading Sessions : "
+        f"{len(load_trading_calendar())}"
     )
 
     print(
@@ -1556,6 +1710,16 @@ def display_summary(
     )
 
     print(
+        f"Trading Calendar          : "
+        f"{summary['trading_calendar_file']}"
+    )
+
+    print(
+        f"Session Source            : "
+        f"{summary['session_source']}"
+    )
+
+    print(
         f"Audit CSV                 : "
         f"{summary['audit_file']}"
     )
@@ -1602,6 +1766,20 @@ def show_status() -> None:
     """
 
     dates = available_raw_dates()
+
+    calendar_exists = (
+        TRADING_CALENDAR_FILE.exists()
+    )
+
+    calendar_sessions = 0
+
+    if calendar_exists:
+        try:
+            calendar_sessions = len(
+                load_trading_calendar()
+            )
+        except Exception:
+            calendar_sessions = 0
 
     print()
     print("=" * 100)
@@ -1679,7 +1857,7 @@ def parse_arguments() -> argparse.Namespace:
         "--end-date",
         required=False,
         help=(
-            "Last raw trading date YYYY-MM-DD."
+            "Last permitted AQSD NSE trading session YYYY-MM-DD."
         ),
     )
 

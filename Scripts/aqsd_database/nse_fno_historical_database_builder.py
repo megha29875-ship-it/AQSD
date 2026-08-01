@@ -3,7 +3,7 @@ AQSD
 NSE F&O Historical Database Builder
 
 Module : FDB-001
-Version: 1.0.0
+Version: 1.1.0
 Author : AQSD
 
 Purpose
@@ -13,7 +13,7 @@ processed UDiFF bhavcopy files produced by NFP-001.
 
 Input
 -----
-Data/Processed/NSE/Derivatives/YYYY-MM-DD/
+D:/AQSD_DATA/Processed/NSE/Derivatives/YYYY-MM-DD/
 
     futures.csv
     options.csv
@@ -21,7 +21,7 @@ Data/Processed/NSE/Derivatives/YYYY-MM-DD/
 
 Output
 ------
-Databases/NSE_FNO_Historical.db
+D:/AQSD_DATA/Databases/NSE_FNO_Historical.db
 
 Primary Tables
 --------------
@@ -58,44 +58,30 @@ from typing import Final
 
 import pandas as pd
 
+from Scripts.aqsd_core.paths import (
+    DATABASE_DIR,
+    NSE_DERIVATIVES_PROCESSED_DIR,
+    NSE_FNO_HISTORICAL_DB,
+    OUTPUT_DIR,
+    ensure_aqsd_directories,
+)
+
 
 # ==========================================================
 # MODULE SETTINGS
 # ==========================================================
 
 MODULE_ID: Final[str] = "FDB-001"
-MODULE_VERSION: Final[str] = "1.0.0"
-
-BASE_DIR: Final[Path] = (
-    Path(__file__).resolve().parents[2]
-)
-
-DATA_DIR: Final[Path] = (
-    BASE_DIR
-    / "Data"
-)
-
-DATABASE_DIR: Final[Path] = (
-    BASE_DIR
-    / "Databases"
-)
-
-OUTPUT_DIR: Final[Path] = (
-    BASE_DIR
-    / "Output"
-)
+MODULE_VERSION: Final[str] = "1.1.0"
 
 PROCESSED_ROOT: Final[Path] = (
-    DATA_DIR
-    / "Processed"
-    / "NSE"
-    / "Derivatives"
+    NSE_DERIVATIVES_PROCESSED_DIR
 )
 
 DATABASE_FILE: Final[Path] = (
-    DATABASE_DIR
-    / "NSE_FNO_Historical.db"
+    NSE_FNO_HISTORICAL_DB
 )
+
 
 AUDIT_CSV: Final[Path] = (
     OUTPUT_DIR
@@ -215,8 +201,20 @@ def parse_date(
 
 def ensure_directories() -> None:
     """
-    Create AQSD directories.
+    Create AQSD central data/output directories.
+
+    Storage architecture:
+        C: project / code / reports
+        D: primary market data
+        E: backup
     """
+
+    ensure_aqsd_directories()
+
+    PROCESSED_ROOT.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     DATABASE_DIR.mkdir(
         parents=True,
