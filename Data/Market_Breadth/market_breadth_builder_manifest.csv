@@ -1,310 +1,310 @@
 Trade_Date,Download_Status,Parse_Status,Rows,Message
-2025-05-26,DOWNLOADED,SUCCESS,2105,Downloaded successfully.
-2025-05-27,DOWNLOADED,SUCCESS,2105,Downloaded successfully.
-2025-05-28,DOWNLOADED,SUCCESS,2108,Downloaded successfully.
-2025-05-29,DOWNLOADED,SUCCESS,2092,Downloaded successfully.
-2025-05-30,DOWNLOADED,SUCCESS,2092,Downloaded successfully.
-2025-06-02,DOWNLOADED,SUCCESS,2090,Downloaded successfully.
-2025-06-03,DOWNLOADED,SUCCESS,2086,Downloaded successfully.
-2025-06-04,DOWNLOADED,SUCCESS,2086,Downloaded successfully.
-2025-06-05,DOWNLOADED,SUCCESS,2082,Downloaded successfully.
-2025-06-06,DOWNLOADED,SUCCESS,2075,Downloaded successfully.
-2025-06-09,DOWNLOADED,SUCCESS,2078,Downloaded successfully.
-2025-06-10,DOWNLOADED,SUCCESS,2080,Downloaded successfully.
-2025-06-11,DOWNLOADED,SUCCESS,2075,Downloaded successfully.
-2025-06-12,DOWNLOADED,SUCCESS,2069,Downloaded successfully.
-2025-06-13,DOWNLOADED,SUCCESS,2064,Downloaded successfully.
-2025-06-16,DOWNLOADED,SUCCESS,2065,Downloaded successfully.
-2025-06-17,DOWNLOADED,SUCCESS,2049,Downloaded successfully.
-2025-06-18,DOWNLOADED,SUCCESS,2045,Downloaded successfully.
-2025-06-19,DOWNLOADED,SUCCESS,2043,Downloaded successfully.
-2025-06-20,DOWNLOADED,SUCCESS,2037,Downloaded successfully.
-2025-06-23,DOWNLOADED,SUCCESS,2043,Downloaded successfully.
-2025-06-24,DOWNLOADED,SUCCESS,2043,Downloaded successfully.
-2025-06-25,DOWNLOADED,SUCCESS,2045,Downloaded successfully.
-2025-06-26,DOWNLOADED,SUCCESS,2041,Downloaded successfully.
-2025-06-27,DOWNLOADED,SUCCESS,2039,Downloaded successfully.
-2025-06-30,DOWNLOADED,SUCCESS,2045,Downloaded successfully.
-2025-07-01,DOWNLOADED,SUCCESS,2045,Downloaded successfully.
-2025-07-02,DOWNLOADED,SUCCESS,2043,Downloaded successfully.
-2025-07-03,DOWNLOADED,SUCCESS,2038,Downloaded successfully.
-2025-07-04,DOWNLOADED,SUCCESS,2038,Downloaded successfully.
-2025-07-07,DOWNLOADED,SUCCESS,2045,Downloaded successfully.
-2025-07-08,DOWNLOADED,SUCCESS,2044,Downloaded successfully.
-2025-07-09,DOWNLOADED,SUCCESS,2043,Downloaded successfully.
-2025-07-10,DOWNLOADED,SUCCESS,2035,Downloaded successfully.
-2025-07-11,DOWNLOADED,SUCCESS,2030,Downloaded successfully.
-2025-07-14,DOWNLOADED,SUCCESS,2046,Downloaded successfully.
-2025-07-15,DOWNLOADED,SUCCESS,2046,Downloaded successfully.
-2025-07-16,DOWNLOADED,SUCCESS,2041,Downloaded successfully.
-2025-07-17,DOWNLOADED,SUCCESS,2042,Downloaded successfully.
-2025-07-18,DOWNLOADED,SUCCESS,2044,Downloaded successfully.
-2025-07-21,DOWNLOADED,SUCCESS,2049,Downloaded successfully.
-2025-07-22,DOWNLOADED,SUCCESS,2048,Downloaded successfully.
-2025-07-23,DOWNLOADED,SUCCESS,2047,Downloaded successfully.
-2025-07-24,DOWNLOADED,SUCCESS,2046,Downloaded successfully.
-2025-07-25,DOWNLOADED,SUCCESS,2046,Downloaded successfully.
-2025-07-28,DOWNLOADED,SUCCESS,2051,Downloaded successfully.
-2025-07-29,DOWNLOADED,SUCCESS,2050,Downloaded successfully.
-2025-07-30,DOWNLOADED,SUCCESS,2053,Downloaded successfully.
-2025-07-31,DOWNLOADED,SUCCESS,2055,Downloaded successfully.
-2025-08-01,DOWNLOADED,SUCCESS,2057,Downloaded successfully.
-2025-08-04,DOWNLOADED,SUCCESS,2074,Downloaded successfully.
-2025-08-05,DOWNLOADED,SUCCESS,2077,Downloaded successfully.
-2025-08-06,DOWNLOADED,SUCCESS,2079,Downloaded successfully.
-2025-08-07,DOWNLOADED,SUCCESS,2079,Downloaded successfully.
-2025-08-08,DOWNLOADED,SUCCESS,2078,Downloaded successfully.
-2025-08-11,DOWNLOADED,SUCCESS,2089,Downloaded successfully.
-2025-08-12,DOWNLOADED,SUCCESS,2089,Downloaded successfully.
-2025-08-13,DOWNLOADED,SUCCESS,2087,Downloaded successfully.
-2025-08-14,DOWNLOADED,SUCCESS,2088,Downloaded successfully.
+2025-05-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-05-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-05-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-05-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-02,CACHED,SUCCESS,2090,Existing local file reused.
+2025-06-03,CACHED,SUCCESS,2086,Existing local file reused.
+2025-06-04,CACHED,SUCCESS,2086,Existing local file reused.
+2025-06-05,CACHED,SUCCESS,2082,Existing local file reused.
+2025-06-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-09,CACHED,SUCCESS,2078,Existing local file reused.
+2025-06-10,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-11,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-12,CACHED,SUCCESS,2069,Existing local file reused.
+2025-06-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-06-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-01,CACHED,SUCCESS,2045,Existing local file reused.
+2025-07-02,CACHED,SUCCESS,2043,Existing local file reused.
+2025-07-03,CACHED,SUCCESS,2038,Existing local file reused.
+2025-07-04,CACHED,SUCCESS,2038,Existing local file reused.
+2025-07-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-08,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-09,CACHED,SUCCESS,2043,Existing local file reused.
+2025-07-10,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-11,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-07-31,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-01,CACHED,SUCCESS,2057,Existing local file reused.
+2025-08-04,CACHED,SUCCESS,2074,Existing local file reused.
+2025-08-05,CACHED,SUCCESS,2077,Existing local file reused.
+2025-08-06,CACHED,SUCCESS,2079,Existing local file reused.
+2025-08-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-08,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-11,CACHED,SUCCESS,2089,Existing local file reused.
+2025-08-12,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2025-08-15,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-08-18,DOWNLOADED,SUCCESS,2097,Downloaded successfully.
-2025-08-19,DOWNLOADED,SUCCESS,2098,Downloaded successfully.
-2025-08-20,DOWNLOADED,SUCCESS,2101,Downloaded successfully.
-2025-08-21,DOWNLOADED,SUCCESS,2099,Downloaded successfully.
-2025-08-22,DOWNLOADED,SUCCESS,2099,Downloaded successfully.
-2025-08-25,DOWNLOADED,SUCCESS,2116,Downloaded successfully.
-2025-08-26,DOWNLOADED,SUCCESS,2115,Downloaded successfully.
+2025-08-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2025-08-27,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-08-28,DOWNLOADED,SUCCESS,2120,Downloaded successfully.
-2025-08-29,DOWNLOADED,SUCCESS,2117,Downloaded successfully.
-2025-09-01,DOWNLOADED,SUCCESS,2129,Downloaded successfully.
-2025-09-02,DOWNLOADED,SUCCESS,2126,Downloaded successfully.
-2025-09-03,DOWNLOADED,SUCCESS,2126,Downloaded successfully.
-2025-09-04,DOWNLOADED,SUCCESS,2128,Downloaded successfully.
-2025-09-05,DOWNLOADED,SUCCESS,2123,Downloaded successfully.
-2025-09-08,DOWNLOADED,SUCCESS,2142,Downloaded successfully.
-2025-09-09,DOWNLOADED,SUCCESS,2208,Downloaded successfully.
-2025-09-10,DOWNLOADED,SUCCESS,2208,Downloaded successfully.
-2025-09-11,DOWNLOADED,SUCCESS,2207,Downloaded successfully.
-2025-09-12,DOWNLOADED,SUCCESS,2208,Downloaded successfully.
-2025-09-15,DOWNLOADED,SUCCESS,2230,Downloaded successfully.
-2025-09-16,DOWNLOADED,SUCCESS,2229,Downloaded successfully.
-2025-09-17,DOWNLOADED,SUCCESS,2232,Downloaded successfully.
-2025-09-18,DOWNLOADED,SUCCESS,2229,Downloaded successfully.
-2025-09-19,DOWNLOADED,SUCCESS,2228,Downloaded successfully.
-2025-09-22,DOWNLOADED,SUCCESS,2248,Downloaded successfully.
-2025-09-23,DOWNLOADED,SUCCESS,2248,Downloaded successfully.
-2025-09-24,DOWNLOADED,SUCCESS,2245,Downloaded successfully.
-2025-09-25,DOWNLOADED,SUCCESS,2244,Downloaded successfully.
-2025-09-26,DOWNLOADED,SUCCESS,2247,Downloaded successfully.
-2025-09-29,DOWNLOADED,SUCCESS,2253,Downloaded successfully.
-2025-09-30,DOWNLOADED,SUCCESS,2256,Downloaded successfully.
-2025-10-01,DOWNLOADED,SUCCESS,2259,Downloaded successfully.
+2025-08-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-08-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-01,CACHED,SUCCESS,2129,Existing local file reused.
+2025-09-02,CACHED,SUCCESS,2126,Existing local file reused.
+2025-09-03,CACHED,SUCCESS,2126,Existing local file reused.
+2025-09-04,CACHED,SUCCESS,2128,Existing local file reused.
+2025-09-05,CACHED,SUCCESS,2123,Existing local file reused.
+2025-09-08,CACHED,SUCCESS,2142,Existing local file reused.
+2025-09-09,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-10,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-11,CACHED,SUCCESS,2207,Existing local file reused.
+2025-09-12,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-09-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-01,CACHED,SUCCESS,2259,Existing local file reused.
 2025-10-02,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-10-03,DOWNLOADED,SUCCESS,2252,Downloaded successfully.
-2025-10-06,DOWNLOADED,SUCCESS,2276,Downloaded successfully.
-2025-10-07,DOWNLOADED,SUCCESS,2277,Downloaded successfully.
-2025-10-08,DOWNLOADED,SUCCESS,2276,Downloaded successfully.
-2025-10-09,DOWNLOADED,SUCCESS,2276,Downloaded successfully.
-2025-10-10,DOWNLOADED,SUCCESS,2274,Downloaded successfully.
-2025-10-13,DOWNLOADED,SUCCESS,2292,Downloaded successfully.
-2025-10-14,DOWNLOADED,SUCCESS,2291,Downloaded successfully.
-2025-10-15,DOWNLOADED,SUCCESS,2286,Downloaded successfully.
-2025-10-16,DOWNLOADED,SUCCESS,2285,Downloaded successfully.
-2025-10-17,DOWNLOADED,SUCCESS,2287,Downloaded successfully.
-2025-10-20,DOWNLOADED,SUCCESS,2299,Downloaded successfully.
-2025-10-21,DOWNLOADED,SUCCESS,2291,Downloaded successfully.
+2025-10-03,CACHED,SUCCESS,2252,Existing local file reused.
+2025-10-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-08,CACHED,SUCCESS,2276,Existing local file reused.
+2025-10-09,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-10,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2025-10-22,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-10-23,DOWNLOADED,SUCCESS,2295,Downloaded successfully.
-2025-10-24,DOWNLOADED,SUCCESS,2299,Downloaded successfully.
-2025-10-27,DOWNLOADED,SUCCESS,2302,Downloaded successfully.
-2025-10-28,DOWNLOADED,SUCCESS,2299,Downloaded successfully.
-2025-10-29,DOWNLOADED,SUCCESS,2289,Downloaded successfully.
-2025-10-30,DOWNLOADED,SUCCESS,2285,Downloaded successfully.
-2025-10-31,DOWNLOADED,SUCCESS,2283,Downloaded successfully.
-2025-11-03,DOWNLOADED,SUCCESS,2286,Downloaded successfully.
-2025-11-04,DOWNLOADED,SUCCESS,2286,Downloaded successfully.
+2025-10-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-10-31,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-03,CACHED,SUCCESS,2286,Existing local file reused.
+2025-11-04,CACHED,SUCCESS,2286,Existing local file reused.
 2025-11-05,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-11-06,DOWNLOADED,SUCCESS,2286,Downloaded successfully.
-2025-11-07,DOWNLOADED,SUCCESS,2286,Downloaded successfully.
-2025-11-10,DOWNLOADED,SUCCESS,2296,Downloaded successfully.
-2025-11-11,DOWNLOADED,SUCCESS,2295,Downloaded successfully.
-2025-11-12,DOWNLOADED,SUCCESS,2291,Downloaded successfully.
-2025-11-13,DOWNLOADED,SUCCESS,2291,Downloaded successfully.
-2025-11-14,DOWNLOADED,SUCCESS,2295,Downloaded successfully.
-2025-11-17,DOWNLOADED,SUCCESS,2304,Downloaded successfully.
-2025-11-18,DOWNLOADED,SUCCESS,2305,Downloaded successfully.
-2025-11-19,DOWNLOADED,SUCCESS,2305,Downloaded successfully.
-2025-11-20,DOWNLOADED,SUCCESS,2309,Downloaded successfully.
-2025-11-21,DOWNLOADED,SUCCESS,2310,Downloaded successfully.
-2025-11-24,DOWNLOADED,SUCCESS,2313,Downloaded successfully.
-2025-11-25,DOWNLOADED,SUCCESS,2312,Downloaded successfully.
-2025-11-26,DOWNLOADED,SUCCESS,2316,Downloaded successfully.
-2025-11-27,DOWNLOADED,SUCCESS,2320,Downloaded successfully.
-2025-11-28,DOWNLOADED,SUCCESS,2318,Downloaded successfully.
-2025-12-01,DOWNLOADED,SUCCESS,2325,Downloaded successfully.
-2025-12-02,DOWNLOADED,SUCCESS,2353,Downloaded successfully.
-2025-12-03,DOWNLOADED,SUCCESS,2353,Downloaded successfully.
-2025-12-04,DOWNLOADED,SUCCESS,2352,Downloaded successfully.
-2025-12-05,DOWNLOADED,SUCCESS,2350,Downloaded successfully.
-2025-12-08,DOWNLOADED,SUCCESS,2356,Downloaded successfully.
-2025-12-09,DOWNLOADED,SUCCESS,2361,Downloaded successfully.
-2025-12-10,DOWNLOADED,SUCCESS,2363,Downloaded successfully.
-2025-12-11,DOWNLOADED,SUCCESS,2362,Downloaded successfully.
-2025-12-12,DOWNLOADED,SUCCESS,2360,Downloaded successfully.
-2025-12-15,DOWNLOADED,SUCCESS,2369,Downloaded successfully.
-2025-12-16,DOWNLOADED,SUCCESS,2367,Downloaded successfully.
-2025-12-17,DOWNLOADED,SUCCESS,2369,Downloaded successfully.
-2025-12-18,DOWNLOADED,SUCCESS,2369,Downloaded successfully.
-2025-12-19,DOWNLOADED,SUCCESS,2373,Downloaded successfully.
-2025-12-22,DOWNLOADED,SUCCESS,2378,Downloaded successfully.
-2025-12-23,DOWNLOADED,SUCCESS,2379,Downloaded successfully.
-2025-12-24,DOWNLOADED,SUCCESS,2375,Downloaded successfully.
+2025-11-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-10,CACHED,SUCCESS,2296,Existing local file reused.
+2025-11-11,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-12,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-11-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-01,CACHED,SUCCESS,2325,Existing local file reused.
+2025-12-02,CACHED,SUCCESS,2353,Existing local file reused.
+2025-12-03,CACHED,SUCCESS,2353,Existing local file reused.
+2025-12-04,CACHED,SUCCESS,2352,Existing local file reused.
+2025-12-05,CACHED,SUCCESS,2350,Existing local file reused.
+2025-12-08,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-09,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-10,CACHED,SUCCESS,2363,Existing local file reused.
+2025-12-11,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-12,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2025-12-25,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2025-12-26,DOWNLOADED,SUCCESS,2373,Downloaded successfully.
-2025-12-29,DOWNLOADED,SUCCESS,2378,Downloaded successfully.
-2025-12-30,DOWNLOADED,SUCCESS,2378,Downloaded successfully.
-2025-12-31,DOWNLOADED,SUCCESS,2381,Downloaded successfully.
-2026-01-01,DOWNLOADED,SUCCESS,2383,Downloaded successfully.
-2026-01-02,DOWNLOADED,SUCCESS,2380,Downloaded successfully.
-2026-01-05,DOWNLOADED,SUCCESS,2389,Downloaded successfully.
-2026-01-06,DOWNLOADED,SUCCESS,2387,Downloaded successfully.
-2026-01-07,DOWNLOADED,SUCCESS,2388,Downloaded successfully.
-2026-01-08,DOWNLOADED,SUCCESS,2384,Downloaded successfully.
-2026-01-09,DOWNLOADED,SUCCESS,2384,Downloaded successfully.
-2026-01-12,DOWNLOADED,SUCCESS,2392,Downloaded successfully.
-2026-01-13,DOWNLOADED,SUCCESS,2391,Downloaded successfully.
-2026-01-14,DOWNLOADED,SUCCESS,2390,Downloaded successfully.
+2025-12-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2025-12-31,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-01,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-02,CACHED,SUCCESS,2380,Existing local file reused.
+2026-01-05,CACHED,SUCCESS,2389,Existing local file reused.
+2026-01-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-08,CACHED,SUCCESS,2384,Existing local file reused.
+2026-01-09,CACHED,SUCCESS,2384,Existing local file reused.
+2026-01-12,CACHED,SUCCESS,2392,Existing local file reused.
+2026-01-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-01-15,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-01-16,DOWNLOADED,SUCCESS,2392,Downloaded successfully.
-2026-01-19,DOWNLOADED,SUCCESS,2400,Downloaded successfully.
-2026-01-20,DOWNLOADED,SUCCESS,2399,Downloaded successfully.
-2026-01-21,DOWNLOADED,SUCCESS,2400,Downloaded successfully.
-2026-01-22,DOWNLOADED,SUCCESS,2396,Downloaded successfully.
-2026-01-23,DOWNLOADED,SUCCESS,2395,Downloaded successfully.
+2026-01-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-01-26,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-01-27,DOWNLOADED,SUCCESS,2406,Downloaded successfully.
-2026-01-28,DOWNLOADED,SUCCESS,2406,Downloaded successfully.
-2026-01-29,DOWNLOADED,SUCCESS,2406,Downloaded successfully.
-2026-01-30,DOWNLOADED,SUCCESS,2405,Downloaded successfully.
-2026-02-02,DOWNLOADED,SUCCESS,2410,Downloaded successfully.
-2026-02-03,DOWNLOADED,SUCCESS,2411,Downloaded successfully.
-2026-02-04,DOWNLOADED,SUCCESS,2410,Downloaded successfully.
-2026-02-05,DOWNLOADED,SUCCESS,2409,Downloaded successfully.
-2026-02-06,DOWNLOADED,SUCCESS,2409,Downloaded successfully.
-2026-02-09,DOWNLOADED,SUCCESS,2413,Downloaded successfully.
-2026-02-10,DOWNLOADED,SUCCESS,2410,Downloaded successfully.
-2026-02-11,DOWNLOADED,SUCCESS,2412,Downloaded successfully.
-2026-02-12,DOWNLOADED,SUCCESS,2411,Downloaded successfully.
-2026-02-13,DOWNLOADED,SUCCESS,2410,Downloaded successfully.
-2026-02-16,DOWNLOADED,SUCCESS,2415,Downloaded successfully.
-2026-02-17,DOWNLOADED,SUCCESS,2413,Downloaded successfully.
-2026-02-18,DOWNLOADED,SUCCESS,2413,Downloaded successfully.
-2026-02-19,DOWNLOADED,SUCCESS,2416,Downloaded successfully.
-2026-02-20,DOWNLOADED,SUCCESS,2416,Downloaded successfully.
-2026-02-23,DOWNLOADED,SUCCESS,2418,Downloaded successfully.
-2026-02-24,DOWNLOADED,SUCCESS,2417,Downloaded successfully.
-2026-02-25,DOWNLOADED,SUCCESS,2420,Downloaded successfully.
-2026-02-26,DOWNLOADED,SUCCESS,2418,Downloaded successfully.
-2026-02-27,DOWNLOADED,SUCCESS,2417,Downloaded successfully.
-2026-03-02,DOWNLOADED,SUCCESS,2423,Downloaded successfully.
+2026-01-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-01-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-02,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-03,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-04,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-05,CACHED,SUCCESS,2409,Existing local file reused.
+2026-02-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-09,CACHED,SUCCESS,2413,Existing local file reused.
+2026-02-10,CACHED,SUCCESS,2410,Existing local file reused.
+2026-02-11,CACHED,SUCCESS,2412,Existing local file reused.
+2026-02-12,CACHED,SUCCESS,2411,Existing local file reused.
+2026-02-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-02-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-02,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-03-03,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-03-04,DOWNLOADED,SUCCESS,2426,Downloaded successfully.
-2026-03-05,DOWNLOADED,SUCCESS,2427,Downloaded successfully.
-2026-03-06,DOWNLOADED,SUCCESS,2421,Downloaded successfully.
-2026-03-09,DOWNLOADED,SUCCESS,2432,Downloaded successfully.
-2026-03-10,DOWNLOADED,SUCCESS,2431,Downloaded successfully.
-2026-03-11,DOWNLOADED,SUCCESS,2433,Downloaded successfully.
-2026-03-12,DOWNLOADED,SUCCESS,2434,Downloaded successfully.
-2026-03-13,DOWNLOADED,SUCCESS,2434,Downloaded successfully.
-2026-03-16,DOWNLOADED,SUCCESS,2438,Downloaded successfully.
-2026-03-17,DOWNLOADED,SUCCESS,2437,Downloaded successfully.
-2026-03-18,DOWNLOADED,SUCCESS,2437,Downloaded successfully.
-2026-03-19,DOWNLOADED,SUCCESS,2434,Downloaded successfully.
-2026-03-20,DOWNLOADED,SUCCESS,2432,Downloaded successfully.
-2026-03-23,DOWNLOADED,SUCCESS,2439,Downloaded successfully.
-2026-03-24,DOWNLOADED,SUCCESS,2439,Downloaded successfully.
-2026-03-25,DOWNLOADED,SUCCESS,2438,Downloaded successfully.
+2026-03-04,CACHED,SUCCESS,2426,Existing local file reused.
+2026-03-05,CACHED,SUCCESS,2427,Existing local file reused.
+2026-03-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-09,CACHED,SUCCESS,2432,Existing local file reused.
+2026-03-10,CACHED,SUCCESS,2431,Existing local file reused.
+2026-03-11,CACHED,SUCCESS,2433,Existing local file reused.
+2026-03-12,CACHED,SUCCESS,2434,Existing local file reused.
+2026-03-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-03-26,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-03-27,DOWNLOADED,SUCCESS,2442,Downloaded successfully.
-2026-03-30,DOWNLOADED,SUCCESS,2448,Downloaded successfully.
+2026-03-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-03-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-03-31,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-04-01,DOWNLOADED,SUCCESS,2447,Downloaded successfully.
-2026-04-02,DOWNLOADED,SUCCESS,2451,Downloaded successfully.
-2026-04-03,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-04-06,DOWNLOADED,SUCCESS,2453,Downloaded successfully.
-2026-04-07,DOWNLOADED,SUCCESS,2453,Downloaded successfully.
-2026-04-08,DOWNLOADED,SUCCESS,2451,Downloaded successfully.
-2026-04-09,DOWNLOADED,SUCCESS,2451,Downloaded successfully.
-2026-04-10,DOWNLOADED,SUCCESS,2452,Downloaded successfully.
-2026-04-13,DOWNLOADED,SUCCESS,2456,Downloaded successfully.
+2026-04-01,CACHED,SUCCESS,2447,Existing local file reused.
+2026-04-02,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-03,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-07,CACHED,SUCCESS,2453,Existing local file reused.
+2026-04-08,CACHED,SUCCESS,2451,Existing local file reused.
+2026-04-09,CACHED,SUCCESS,2451,Existing local file reused.
+2026-04-10,CACHED,SUCCESS,2452,Existing local file reused.
+2026-04-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-04-14,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-04-15,DOWNLOADED,SUCCESS,2456,Downloaded successfully.
-2026-04-16,DOWNLOADED,SUCCESS,2455,Downloaded successfully.
-2026-04-17,DOWNLOADED,SUCCESS,2403,Downloaded successfully.
-2026-04-20,DOWNLOADED,SUCCESS,2503,Downloaded successfully.
-2026-04-21,DOWNLOADED,SUCCESS,2506,Downloaded successfully.
-2026-04-22,DOWNLOADED,SUCCESS,2501,Downloaded successfully.
-2026-04-23,DOWNLOADED,SUCCESS,2495,Downloaded successfully.
-2026-04-24,DOWNLOADED,SUCCESS,2486,Downloaded successfully.
-2026-04-27,DOWNLOADED,SUCCESS,2483,Downloaded successfully.
-2026-04-28,DOWNLOADED,SUCCESS,2479,Downloaded successfully.
-2026-04-29,DOWNLOADED,SUCCESS,2475,Downloaded successfully.
-2026-04-30,DOWNLOADED,SUCCESS,2455,Downloaded successfully.
-2026-05-01,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-05-04,DOWNLOADED,SUCCESS,2458,Downloaded successfully.
-2026-05-05,DOWNLOADED,SUCCESS,2454,Downloaded successfully.
-2026-05-06,DOWNLOADED,SUCCESS,2452,Downloaded successfully.
-2026-05-07,DOWNLOADED,SUCCESS,2453,Downloaded successfully.
-2026-05-08,DOWNLOADED,SUCCESS,2449,Downloaded successfully.
-2026-05-11,DOWNLOADED,SUCCESS,2452,Downloaded successfully.
-2026-05-12,DOWNLOADED,SUCCESS,2442,Downloaded successfully.
-2026-05-13,DOWNLOADED,SUCCESS,2436,Downloaded successfully.
-2026-05-14,DOWNLOADED,SUCCESS,2432,Downloaded successfully.
-2026-05-15,DOWNLOADED,SUCCESS,2423,Downloaded successfully.
-2026-05-18,DOWNLOADED,SUCCESS,2421,Downloaded successfully.
-2026-05-19,DOWNLOADED,SUCCESS,2463,Downloaded successfully.
-2026-05-20,DOWNLOADED,SUCCESS,2462,Downloaded successfully.
-2026-05-21,DOWNLOADED,SUCCESS,2461,Downloaded successfully.
-2026-05-22,DOWNLOADED,SUCCESS,2462,Downloaded successfully.
-2026-05-25,DOWNLOADED,SUCCESS,2466,Downloaded successfully.
-2026-05-26,DOWNLOADED,SUCCESS,2465,Downloaded successfully.
-2026-05-27,DOWNLOADED,SUCCESS,2463,Downloaded successfully.
+2026-04-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-04-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-01,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-04,CACHED,SUCCESS,2458,Existing local file reused.
+2026-05-05,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-06,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-07,CACHED,SUCCESS,2453,Existing local file reused.
+2026-05-08,CACHED,SUCCESS,2449,Existing local file reused.
+2026-05-11,CACHED,SUCCESS,2452,Existing local file reused.
+2026-05-12,CACHED,SUCCESS,2442,Existing local file reused.
+2026-05-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-26,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-05-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-05-28,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-05-29,DOWNLOADED,SUCCESS,2461,Downloaded successfully.
-2026-06-01,DOWNLOADED,SUCCESS,2462,Downloaded successfully.
-2026-06-02,DOWNLOADED,SUCCESS,2458,Downloaded successfully.
-2026-06-03,DOWNLOADED,SUCCESS,2453,Downloaded successfully.
-2026-06-04,DOWNLOADED,SUCCESS,2452,Downloaded successfully.
-2026-06-05,DOWNLOADED,SUCCESS,2443,Downloaded successfully.
-2026-06-08,DOWNLOADED,SUCCESS,2446,Downloaded successfully.
-2026-06-09,DOWNLOADED,SUCCESS,2443,Downloaded successfully.
-2026-06-10,DOWNLOADED,SUCCESS,2441,Downloaded successfully.
-2026-06-11,DOWNLOADED,SUCCESS,2433,Downloaded successfully.
-2026-06-12,DOWNLOADED,SUCCESS,2430,Downloaded successfully.
-2026-06-15,DOWNLOADED,SUCCESS,2428,Downloaded successfully.
-2026-06-16,DOWNLOADED,SUCCESS,2431,Downloaded successfully.
-2026-06-17,DOWNLOADED,SUCCESS,2427,Downloaded successfully.
-2026-06-18,DOWNLOADED,SUCCESS,2420,Downloaded successfully.
-2026-06-19,DOWNLOADED,SUCCESS,2415,Downloaded successfully.
-2026-06-22,DOWNLOADED,SUCCESS,2419,Downloaded successfully.
-2026-06-23,DOWNLOADED,SUCCESS,2411,Downloaded successfully.
-2026-06-24,DOWNLOADED,SUCCESS,2408,Downloaded successfully.
-2026-06-25,DOWNLOADED,SUCCESS,2406,Downloaded successfully.
+2026-05-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-01,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-02,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-03,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-04,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-05,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-08,CACHED,SUCCESS,2446,Existing local file reused.
+2026-06-09,CACHED,SUCCESS,2443,Existing local file reused.
+2026-06-10,CACHED,SUCCESS,2441,Existing local file reused.
+2026-06-11,CACHED,SUCCESS,2433,Existing local file reused.
+2026-06-12,CACHED,SUCCESS,2430,Existing local file reused.
+2026-06-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-18,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-19,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-25,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
 2026-06-26,UNAVAILABLE,NOT RUN,0,No NSE bhavcopy was available for this date.
-2026-06-29,DOWNLOADED,SUCCESS,2404,Downloaded successfully.
-2026-06-30,DOWNLOADED,SUCCESS,2406,Downloaded successfully.
-2026-07-01,DOWNLOADED,SUCCESS,2407,Downloaded successfully.
-2026-07-02,DOWNLOADED,SUCCESS,2396,Downloaded successfully.
-2026-07-03,DOWNLOADED,SUCCESS,2384,Downloaded successfully.
-2026-07-06,DOWNLOADED,SUCCESS,2386,Downloaded successfully.
-2026-07-07,DOWNLOADED,SUCCESS,2382,Downloaded successfully.
-2026-07-08,DOWNLOADED,SUCCESS,2378,Downloaded successfully.
-2026-07-09,DOWNLOADED,SUCCESS,2374,Downloaded successfully.
-2026-07-10,DOWNLOADED,SUCCESS,2370,Downloaded successfully.
-2026-07-13,DOWNLOADED,SUCCESS,2378,Downloaded successfully.
-2026-07-14,DOWNLOADED,SUCCESS,2377,Downloaded successfully.
-2026-07-15,DOWNLOADED,SUCCESS,2382,Downloaded successfully.
-2026-07-16,DOWNLOADED,SUCCESS,2386,Downloaded successfully.
-2026-07-17,DOWNLOADED,SUCCESS,2380,Downloaded successfully.
-2026-07-20,DOWNLOADED,SUCCESS,2383,Downloaded successfully.
-2026-07-21,DOWNLOADED,SUCCESS,2390,Downloaded successfully.
-2026-07-22,DOWNLOADED,SUCCESS,2388,Downloaded successfully.
-2026-07-23,DOWNLOADED,SUCCESS,2387,Downloaded successfully.
-2026-07-24,DOWNLOADED,SUCCESS,2389,Downloaded successfully.
-2026-07-27,DOWNLOADED,SUCCESS,2408,Downloaded successfully.
-2026-07-28,DOWNLOADED,SUCCESS,2410,Downloaded successfully.
-2026-07-29,DOWNLOADED,SUCCESS,2407,Downloaded successfully.
-2026-07-30,DOWNLOADED,SUCCESS,2409,Downloaded successfully.
+2026-06-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-06-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-01,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-02,CACHED,SUCCESS,2396,Existing local file reused.
+2026-07-03,CACHED,SUCCESS,2384,Existing local file reused.
+2026-07-06,CACHED,SUCCESS,2386,Existing local file reused.
+2026-07-07,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-08,CACHED,SUCCESS,2378,Existing local file reused.
+2026-07-09,CACHED,SUCCESS,2374,Existing local file reused.
+2026-07-10,CACHED,SUCCESS,2370,Existing local file reused.
+2026-07-13,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-14,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-15,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-16,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-17,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-20,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-21,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-22,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-23,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-24,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-27,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-28,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-29,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-30,HISTORY CACHE,SKIPPED,0,Trade date already exists in assembled history.
+2026-07-31,DOWNLOADED,SUCCESS,2409,Downloaded successfully.
