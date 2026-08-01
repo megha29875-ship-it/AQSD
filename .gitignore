@@ -82,3 +82,13 @@ __pycache__/
 Data/fyers_config.env
 
 .venv-fyers/
+
+# AQSD generated databases
+Databases/*.db
+Databases/*.db-wal
+Databases/*.db-shm
+
+# NSE raw / processed historical market data
+Data/Raw/
+Data/Processed/
+Data/Historical/
