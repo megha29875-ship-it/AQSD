@@ -82,6 +82,13 @@ PIPELINE = [
         ["--date", "{date}"],
         True,
     ),
+
+    (
+        "Market History Change Engine",
+        "aqsd_intelligence/market_history_change_engine.py",
+        [],
+        False,
+    ),
 ]
 
 
