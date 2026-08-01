@@ -77,18 +77,47 @@ PIPELINE = [
         True,
     ),
     (
-        "Market History Recorder",
-        "aqsd_intelligence/market_history_recorder.py",
-        ["--date", "{date}"],
-        True,
-    ),
-
-    (
-        "Market History Change Engine",
-        "aqsd_intelligence/market_history_change_engine.py",
-        [],
-        False,
-    ),
+    "Market History Recorder",
+    "aqsd_intelligence/market_history_recorder.py",
+    ["--date", "{date}"],
+    True,
+),
+(
+    "Market History Change Engine",
+    "aqsd_intelligence/market_history_change_engine.py",
+    [],
+    False,
+),
+(
+    "Market History Trend Engine",
+    "aqsd_intelligence/market_history_trend_engine.py",
+    [],
+    False,
+),
+(
+    "Market History Recorder",
+    "aqsd_intelligence/market_history_recorder.py",
+    ["--date", "{date}"],
+    True,
+),
+(
+    "Market History Change Engine",
+    "aqsd_intelligence/market_history_change_engine.py",
+    [],
+    False,
+),
+(
+    "Market History Trend Engine",
+    "aqsd_intelligence/market_history_trend_engine.py",
+    [],
+    False,
+),
+(
+    "Historical Intelligence Summary Engine",
+    "aqsd_intelligence/historical_intelligence_summary_engine.py",
+    [],
+    False,
+),
 ]
 
 
