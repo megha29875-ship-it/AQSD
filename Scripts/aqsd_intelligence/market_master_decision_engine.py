@@ -3,7 +3,7 @@ AQSD
 Market Master Decision Engine
 
 Module : MMD-001
-Version: 1.0.0
+Version: 1.1.0
 Author : AQSD
 
 Description
@@ -70,7 +70,7 @@ from Scripts.aqsd_market_intelligence_pipeline import (
 # ==========================================================
 
 MODULE_ID: Final[str] = "MMD-001"
-MODULE_VERSION: Final[str] = "1.0.0"
+MODULE_VERSION: Final[str] = "1.1.0"
 
 
 # ==========================================================
@@ -309,33 +309,29 @@ def select_trade_date(
 def obtain_market_regime_result(
     *,
     pipeline_result: MarketIntelligencePipelineResult,
-    trade_date: date,
-    breadth_source_file: Path,
-    weekly_lookback_sessions: int,
 ) -> object:
     """
-    Obtain the complete Market Regime result.
+    Return the complete Market Regime result already produced by
+    the Market Intelligence Pipeline.
 
-    The Market Intelligence Pipeline already runs the Market Regime
-    Engine. The normalized stage result does not retain every detailed
-    regime field, so this function calls the engine once more without
-    creating additional exports.
+    The Market Regime Engine must execute only once. The pipeline
+    retains its full Stage-4 result in ``regime_result`` specifically
+    for downstream consumers such as this Master Decision Engine.
     """
 
-    from Scripts.aqsd_intelligence.market_regime_engine import (
-        run_market_regime_engine,
+    regime_result = getattr(
+        pipeline_result,
+        "regime_result",
+        None,
     )
 
-    return call_with_supported_arguments(
-        run_market_regime_engine,
-        {
-            "requested_date": trade_date,
-            "breadth_source_file": breadth_source_file,
-            "weekly_lookback_sessions": (
-                weekly_lookback_sessions
-            ),
-        },
-    )
+    if regime_result is None:
+        raise RuntimeError(
+            "The Market Intelligence Pipeline did not return a full "
+            "Market Regime result. Stage 4 may not have completed."
+        )
+
+    return regime_result
 
 
 # ==========================================================
@@ -1273,11 +1269,6 @@ def run_market_master_decision_engine(
 
     regime_result = obtain_market_regime_result(
         pipeline_result=pipeline_result,
-        trade_date=selected_trade_date,
-        breadth_source_file=source_file,
-        weekly_lookback_sessions=(
-            weekly_lookback_sessions
-        ),
     )
 
     primary_regime = normalize_text(

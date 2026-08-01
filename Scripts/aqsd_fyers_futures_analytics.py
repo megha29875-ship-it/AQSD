@@ -1,7 +1,7 @@
 """
 AQSD Professional
 Module: FYERS Futures Analytics Engine
-Version: 1.0
+Version: 1.1
 
 Purpose
 -------
@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -78,40 +79,120 @@ MAX_QUOTES_PER_REQUEST = 50
 
 
 def load_config() -> dict[str, str]:
+    """
+    Load FYERS credentials from AQSD's central Data/fyers_config.env.
+
+    Current AQSD token generator stores canonical names:
+
+        FYERS_CLIENT_ID
+        FYERS_ACCESS_TOKEN
+
+    Legacy aliases remain supported so older files and manual
+    environments continue to work safely.
+    """
+
     if not CONFIG_FILE.exists():
         raise FileNotFoundError(
             f"FYERS configuration file not found:\n{CONFIG_FILE}"
         )
 
-    config: dict[str, str] = {}
+    raw_config: dict[str, str] = {}
 
     for raw_line in CONFIG_FILE.read_text(
         encoding="utf-8"
     ).splitlines():
         line = raw_line.strip()
 
-        if not line or line.startswith("#") or "=" not in line:
+        if (
+            not line
+            or line.startswith("#")
+            or "=" not in line
+        ):
             continue
 
-        key, value = line.split("=", 1)
-        config[key.strip()] = value.strip()
+        key, value = line.split(
+            "=",
+            1,
+        )
 
-    missing = [
-        key
-        for key in ("CLIENT_ID", "ACCESS_TOKEN")
-        if not config.get(key)
-    ]
+        raw_config[
+            key.strip()
+        ] = (
+            value
+            .strip()
+            .strip('"')
+            .strip("'")
+        )
+
+    def first_value(
+        *names: str,
+    ) -> str:
+        """
+        Return the first non-empty value from the config file
+        or process environment.
+        """
+
+        for name in names:
+            value = (
+                raw_config.get(name)
+                or os.getenv(name)
+            )
+
+            if value:
+                return str(
+                    value
+                ).strip()
+
+        return ""
+
+    client_id = first_value(
+        "FYERS_CLIENT_ID",
+        "CLIENT_ID",
+        "APP_ID",
+        "FYERS_APP_ID",
+    )
+
+    access_token = first_value(
+        "FYERS_ACCESS_TOKEN",
+        "ACCESS_TOKEN",
+        "FYERS_TOKEN",
+    )
+
+    missing: list[str] = []
+
+    if not client_id:
+        missing.append(
+            "FYERS_CLIENT_ID"
+        )
+
+    if not access_token:
+        missing.append(
+            "FYERS_ACCESS_TOKEN"
+        )
 
     if missing:
         raise RuntimeError(
             "Missing FYERS configuration values: "
             + ", ".join(missing)
+            + f". Check {CONFIG_FILE}"
         )
 
-    return config
+    # Return canonical names used by the analytics engines.
+    return {
+        **raw_config,
+        "CLIENT_ID": client_id,
+        "ACCESS_TOKEN": access_token,
+        "FYERS_CLIENT_ID": client_id,
+        "FYERS_ACCESS_TOKEN": access_token,
+    }
 
 
 def create_client() -> fyersModel.FyersModel:
+    """
+    Create an authenticated FYERS API client using AQSD's
+    centralized credential loader.
+    """
+
     config = load_config()
 
     return fyersModel.FyersModel(

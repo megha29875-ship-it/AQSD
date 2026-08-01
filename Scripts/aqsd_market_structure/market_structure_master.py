@@ -3,445 +3,30 @@ AQSD
 Market Structure Master
 
 Module : MSM-001
-Version: 1.0.0
+Version: 1.0.2
 Author : AQSD
 
 Description
 -----------
 Provides one stable entry point for AQSD Market Structure intelligence.
 
-The master attempts to combine the currently available structure
-components:
+The master combines the existing AQSD structure chain:
 
     Trend
     Swing Structure
     Break of Structure
     Change of Character
-    Market Phase
-    Market Regime
     Confidence
-    Risk
-    Expected Behaviour
+    Market Regime
+    Market Phase
 
-The module is designed as a compatibility layer. It safely checks
-different AQSD module and function names without stopping the broader
-Market Intelligence Pipeline when an individual structure component
-is unavailable.
+The historical market data is downloaded once and passed through the
+same analytical functions already used by test_engine.py.
 
-Primary public function
------------------------
-def run_market_structure_components(
-    *,
-    requested_date: date,
-    symbol: str,
-) -> tuple[
-    StructureComponentResult,
-    StructureComponentResult,
-    StructureComponentResult,
-    StructureComponentResult,
-    StructureComponentResult,
-    StructureComponentResult,
-]:
-    """
-    Download market data once and run the actual AQSD Market
-    Structure functions already used by test_engine.py.
-    """
-
-    try:
-        test_engine = importlib.import_module(
-            "Scripts.aqsd_market_structure.test_engine"
-        )
-
-        fyers = test_engine.create_fyers_client()
-
-        market_data = test_engine.download_fyers_history(
-            fyers=fyers,
-            symbol=symbol,
-        )
-
-        trend_result = test_engine.analyze_trend(
-            market_data
-        )
-
-        swing_highs, swing_lows = (
-            test_engine.detect_and_classify_swings(
-                market_data
-            )
-        )
-
-        bos_result = test_engine.detect_break_of_structure(
-            market_data
-        )
-
-        choch_result = test_engine.detect_change_of_character(
-            market_data
-        )
-
-        confidence_result = test_engine.calculate_confidence(
-            trend_result=trend_result,
-            swing_highs=swing_highs,
-            swing_lows=swing_lows,
-            bos_result=bos_result,
-            choch_result=choch_result,
-        )
-
-        regime_result = test_engine.analyze_market_regime(
-            trend_result=trend_result,
-            confidence_result=confidence_result,
-            bos_result=bos_result,
-            choch_result=choch_result,
-        )
-
-        phase_result = test_engine.analyze_market_phase(
-            trend_result=trend_result,
-            confidence_result=confidence_result,
-            regime_result=regime_result,
-            bos_result=bos_result,
-            choch_result=choch_result,
-        )
-
-        common_confidence = safe_int(
-            first_value(
-                confidence_result,
-                (
-                    "confidence",
-                    "confidence_score",
-                    "overall_confidence",
-                    "score",
-                ),
-                50,
-            )
-        )
-
-        trend_component = normalize_component_result(
-            component_name="TREND ENGINE",
-            result=trend_result,
-            bias_fields=(
-                "market_bias",
-                "trend_bias",
-                "trend",
-                "direction",
-            ),
-            direction_fields=(
-                "trend",
-                "trend_direction",
-                "direction",
-            ),
-            state_fields=(
-                "trend",
-                "trend_state",
-                "state",
-            ),
-            quality_fields=(
-                "trend_strength",
-                "strength",
-                "trend_quality",
-                "quality",
-            ),
-            risk_fields=(
-                "risk_level",
-                "trend_risk",
-            ),
-            confidence_fields=(
-                "confidence",
-                "trend_confidence",
-                "strength_score",
-            ),
-        )
-
-        latest_high = (
-            swing_highs[-1]
-            if swing_highs
-            else None
-        )
-
-        latest_low = (
-            swing_lows[-1]
-            if swing_lows
-            else None
-        )
-
-        high_type = normalize_text(
-            first_value(
-                latest_high,
-                (
-                    "swing_type",
-                    "type",
-                    "classification",
-                ),
-                "NO HIGH",
-            )
-        )
-
-        low_type = normalize_text(
-            first_value(
-                latest_low,
-                (
-                    "swing_type",
-                    "type",
-                    "classification",
-                ),
-                "NO LOW",
-            )
-        )
-
-        swing_state = (
-            f"{high_type} / {low_type}"
-        )
-
-        swing_bias = "NEUTRAL"
-
-        if (
-            "HH" in high_type
-            and "HL" in low_type
-        ):
-            swing_bias = "BULLISH"
-
-        elif (
-            "LH" in high_type
-            and "LL" in low_type
-        ):
-            swing_bias = "BEARISH"
-
-        swing_component = StructureComponentResult(
-            component_name="SWING STRUCTURE ENGINE",
-            available=True,
-            status="SUCCESS",
-            bias=swing_bias,
-            direction=swing_bias,
-            state=swing_state,
-            quality="AVAILABLE",
-            risk="NOT AVAILABLE",
-            confidence=common_confidence,
-            expected_behaviour="STRUCTURAL SWING SEQUENCE",
-            summary=swing_state,
-            explanation=(
-                f"Latest swing high is {high_type} and "
-                f"latest swing low is {low_type}."
-            ),
-            warning=None,
-        )
-
-        bos_component = normalize_component_result(
-            component_name="BREAK OF STRUCTURE ENGINE",
-            result=bos_result,
-            bias_fields=(
-                "bias",
-                "bos_bias",
-                "market_bias",
-                "direction",
-            ),
-            direction_fields=(
-                "direction",
-                "bos_direction",
-                "break_direction",
-            ),
-            state_fields=(
-                "bos_state",
-                "break_of_structure",
-                "signal",
-                "state",
-            ),
-            quality_fields=(
-                "quality",
-                "bos_quality",
-                "strength",
-            ),
-            risk_fields=(
-                "risk_level",
-                "bos_risk",
-            ),
-            confidence_fields=(
-                "confidence",
-                "bos_confidence",
-            ),
-        )
-
-        choch_component = normalize_component_result(
-            component_name="CHANGE OF CHARACTER ENGINE",
-            result=choch_result,
-            bias_fields=(
-                "bias",
-                "choch_bias",
-                "market_bias",
-                "direction",
-            ),
-            direction_fields=(
-                "direction",
-                "choch_direction",
-                "change_direction",
-            ),
-            state_fields=(
-                "choch_state",
-                "change_of_character",
-                "signal",
-                "state",
-            ),
-            quality_fields=(
-                "quality",
-                "choch_quality",
-                "strength",
-            ),
-            risk_fields=(
-                "risk_level",
-                "reversal_risk",
-                "choch_risk",
-            ),
-            confidence_fields=(
-                "confidence",
-                "choch_confidence",
-            ),
-        )
-
-        phase_component = normalize_component_result(
-            component_name="MARKET PHASE ENGINE",
-            result=phase_result,
-            bias_fields=(
-                "market_bias",
-                "phase_bias",
-                "bias",
-                "direction",
-            ),
-            direction_fields=(
-                "phase_direction",
-                "market_direction",
-                "direction",
-            ),
-            state_fields=(
-                "market_phase",
-                "phase",
-                "state",
-            ),
-            quality_fields=(
-                "phase_quality",
-                "quality",
-                "strength",
-            ),
-            risk_fields=(
-                "risk_level",
-                "phase_risk",
-            ),
-            confidence_fields=(
-                "confidence",
-                "phase_confidence",
-            ),
-        )
-
-        legacy_component = normalize_component_result(
-            component_name="MARKET REGIME ENGINE",
-            result=regime_result,
-            bias_fields=(
-                "market_bias",
-                "regime_bias",
-                "bias",
-                "direction",
-            ),
-            direction_fields=(
-                "market_direction",
-                "regime_direction",
-                "direction",
-            ),
-            state_fields=(
-                "market_regime",
-                "regime",
-                "state",
-            ),
-            quality_fields=(
-                "regime_strength",
-                "quality",
-                "strength",
-            ),
-            risk_fields=(
-                "risk_level",
-                "regime_risk",
-            ),
-            confidence_fields=(
-                "confidence",
-                "regime_confidence",
-            ),
-        )
-
-        # Apply the combined confidence where individual components
-        # do not expose their own confidence value.
-
-        def apply_confidence(
-            component: StructureComponentResult,
-        ) -> StructureComponentResult:
-            if component.confidence > 0:
-                return component
-
-            return StructureComponentResult(
-                component_name=component.component_name,
-                available=component.available,
-                status=component.status,
-                bias=component.bias,
-                direction=component.direction,
-                state=component.state,
-                quality=component.quality,
-                risk=component.risk,
-                confidence=common_confidence,
-                expected_behaviour=(
-                    component.expected_behaviour
-                ),
-                summary=component.summary,
-                explanation=component.explanation,
-                warning=component.warning,
-            )
-
-        return (
-            apply_confidence(
-                legacy_component
-            ),
-            apply_confidence(
-                trend_component
-            ),
-            apply_confidence(
-                swing_component
-            ),
-            apply_confidence(
-                bos_component
-            ),
-            apply_confidence(
-                choch_component
-            ),
-            apply_confidence(
-                phase_component
-            ),
-        )
-
-    except Exception as exc:
-        warning = (
-            "Integrated Market Structure analysis failed: "
-            f"{type(exc).__name__}: {exc}"
-        )
-
-        return (
-            empty_component(
-                component_name="MARKET REGIME ENGINE",
-                warning=warning,
-            ),
-            empty_component(
-                component_name="TREND ENGINE",
-                warning=warning,
-            ),
-            empty_component(
-                component_name="SWING STRUCTURE ENGINE",
-                warning=warning,
-            ),
-            empty_component(
-                component_name="BREAK OF STRUCTURE ENGINE",
-                warning=warning,
-            ),
-            empty_component(
-                component_name="CHANGE OF CHARACTER ENGINE",
-                warning=warning,
-            ),
-            empty_component(
-                component_name="MARKET PHASE ENGINE",
-                warning=warning,
-            ),
-        )
+Primary public functions
+------------------------
 run_market_structure_master(...)
+run_market_structure(...)
 
 Important
 ---------
@@ -466,7 +51,7 @@ from typing import Any, Final
 # ==========================================================
 
 MODULE_ID: Final[str] = "MSM-001"
-MODULE_VERSION: Final[str] = "1.0.0"
+MODULE_VERSION: Final[str] = "1.0.2"
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 
@@ -567,13 +152,50 @@ def normalize_text(
     default: str = "UNKNOWN",
 ) -> str:
     """
-    Convert a value to normalized uppercase text.
+    Convert a value to clean uppercase display text.
+
+    Enum-like AQSD values are converted from forms such as:
+
+        TrendDirection.BULLISH
+        SwingType.HIGHER_HIGH
+        MarketPhase.RECOVERY
+
+    into:
+
+        BULLISH
+        HIGHER HIGH
+        RECOVERY
     """
 
     if value is None:
         return default
 
-    text = str(value).strip().upper()
+    enum_value = getattr(
+        value,
+        "value",
+        value,
+    )
+
+    text = str(
+        enum_value
+    ).strip()
+
+    if not text:
+        return default
+
+    # Defensive fallback for Enum-style string representations.
+    if "." in text and " " not in text:
+        text = text.rsplit(
+            ".",
+            1,
+        )[-1]
+
+    text = (
+        text
+        .replace("_", " ")
+        .strip()
+        .upper()
+    )
 
     return text or default
 
@@ -2067,6 +1689,573 @@ def build_warnings(
 
 
 # ==========================================================
+# INTEGRATED MARKET STRUCTURE CHAIN
+# ==========================================================
+
+def run_market_structure_components(
+    *,
+    requested_date: date,
+    symbol: str,
+) -> tuple[
+    StructureComponentResult,
+    StructureComponentResult,
+    StructureComponentResult,
+    StructureComponentResult,
+    StructureComponentResult,
+    StructureComponentResult,
+]:
+    """
+    Download market data once and run the actual AQSD Market
+    Structure functions already used by test_engine.py.
+    """
+
+    try:
+        test_engine = importlib.import_module(
+            "Scripts.aqsd_market_structure.test_engine"
+        )
+
+        fyers = test_engine.create_fyers_client()
+
+        market_data = test_engine.download_fyers_history(
+            fyers=fyers,
+            symbol=symbol,
+        )
+
+        trend_result = test_engine.analyze_trend(
+            market_data
+        )
+
+        swing_highs, swing_lows = (
+            test_engine.detect_and_classify_swings(
+                market_data
+            )
+        )
+
+        bos_result = test_engine.detect_break_of_structure(
+            market_data
+        )
+
+        choch_result = test_engine.detect_change_of_character(
+            market_data
+        )
+
+        confidence_result = test_engine.calculate_confidence(
+            trend_result=trend_result,
+            swing_highs=swing_highs,
+            swing_lows=swing_lows,
+            bos_result=bos_result,
+            choch_result=choch_result,
+        )
+
+        regime_result = test_engine.analyze_market_regime(
+            trend_result=trend_result,
+            confidence_result=confidence_result,
+            bos_result=bos_result,
+            choch_result=choch_result,
+        )
+
+        phase_result = test_engine.analyze_market_phase(
+            trend_result=trend_result,
+            confidence_result=confidence_result,
+            regime_result=regime_result,
+            bos_result=bos_result,
+            choch_result=choch_result,
+        )
+
+        common_confidence = safe_int(
+            first_value(
+                confidence_result,
+                (
+                    "confidence",
+                    "confidence_score",
+                    "overall_confidence",
+                    "score",
+                ),
+                50,
+            )
+        )
+
+        trend_component = normalize_component_result(
+            component_name="TREND ENGINE",
+            result=trend_result,
+            bias_fields=(
+                "market_bias",
+                "trend_bias",
+                "trend",
+                "direction",
+            ),
+            direction_fields=(
+                "trend",
+                "trend_direction",
+                "direction",
+            ),
+            state_fields=(
+                "trend",
+                "trend_state",
+                "state",
+            ),
+            quality_fields=(
+                "trend_strength",
+                "strength",
+                "trend_quality",
+                "quality",
+            ),
+            risk_fields=(
+                "risk_level",
+                "trend_risk",
+            ),
+            confidence_fields=(
+                "confidence",
+                "trend_confidence",
+                "strength_score",
+            ),
+        )
+
+        latest_high = (
+            swing_highs[-1]
+            if swing_highs
+            else None
+        )
+
+        latest_low = (
+            swing_lows[-1]
+            if swing_lows
+            else None
+        )
+
+        high_type = normalize_text(
+            first_value(
+                latest_high,
+                (
+                    "swing_type",
+                    "type",
+                    "classification",
+                ),
+                "NO HIGH",
+            )
+        )
+
+        low_type = normalize_text(
+            first_value(
+                latest_low,
+                (
+                    "swing_type",
+                    "type",
+                    "classification",
+                ),
+                "NO LOW",
+            )
+        )
+
+        swing_state = (
+            f"{high_type} / {low_type}"
+        )
+
+        swing_bias = "NEUTRAL"
+
+        if (
+            high_type == "HIGHER HIGH"
+            and low_type == "HIGHER LOW"
+        ):
+            swing_bias = "BULLISH"
+
+        elif (
+            high_type == "LOWER HIGH"
+            and low_type == "LOWER LOW"
+        ):
+            swing_bias = "BEARISH"
+
+        swing_component = StructureComponentResult(
+            component_name="SWING STRUCTURE ENGINE",
+            available=True,
+            status="SUCCESS",
+            bias=swing_bias,
+            direction=swing_bias,
+            state=swing_state,
+            quality="AVAILABLE",
+            risk="NOT AVAILABLE",
+            confidence=common_confidence,
+            expected_behaviour="STRUCTURAL SWING SEQUENCE",
+            summary=swing_state,
+            explanation=(
+                f"Latest swing high is {high_type} and "
+                f"latest swing low is {low_type}."
+            ),
+            warning=None,
+        )
+
+        # ------------------------------------------------------
+        # BOS — actual AQSD BreakOfStructureResult schema
+        # ------------------------------------------------------
+
+        bos_detected = bool(
+            first_value(
+                bos_result,
+                (
+                    "detected",
+                ),
+                False,
+            )
+        )
+
+        bos_direction = normalize_text(
+            first_value(
+                bos_result,
+                (
+                    "direction",
+                ),
+                "NONE",
+            ),
+            "NONE",
+        )
+
+        bos_state = (
+    bos_direction
+    if (
+        bos_detected
+        and bos_direction not in {
+            "NONE",
+            "NEUTRAL",
+            "UNKNOWN",
+        }
+    )
+    else "NONE"
+)
+
+        bos_bias = (
+            bos_direction
+            if bos_direction in {
+                "BULLISH",
+                "BEARISH",
+            }
+            else "NEUTRAL"
+        )
+
+        bos_reference = first_value(
+            bos_result,
+            (
+                "reference_swing",
+            ),
+            None,
+        )
+
+        bos_reference_type = normalize_text(
+            first_value(
+                bos_reference,
+                (
+                    "swing_type",
+                    "type",
+                ),
+                "NOT APPLICABLE",
+            ),
+            "NOT APPLICABLE",
+        )
+
+        bos_broken_level = first_value(
+            bos_result,
+            (
+                "broken_level",
+            ),
+            None,
+        )
+
+        bos_component = StructureComponentResult(
+            component_name="BREAK OF STRUCTURE ENGINE",
+            available=True,
+            status="SUCCESS",
+            bias=bos_bias,
+            direction=bos_direction,
+            state=bos_state,
+            quality=(
+                "CONFIRMED"
+                if bos_detected
+                else "NO NEW BREAK"
+            ),
+            risk="NOT AVAILABLE",
+            confidence=common_confidence,
+            expected_behaviour=(
+                "STRUCTURAL BREAK CONFIRMED"
+                if bos_detected
+                else "NO NEW STRUCTURAL BREAK"
+            ),
+            summary=(
+                f"{bos_state} | "
+                f"REFERENCE {bos_reference_type}"
+            ),
+            explanation=(
+                f"BOS detected: {'YES' if bos_detected else 'NO'}. "
+                f"Direction: {bos_direction}. "
+                f"Broken level: "
+                f"{bos_broken_level if bos_broken_level is not None else 'NOT APPLICABLE'}. "
+                f"Reference swing: {bos_reference_type}."
+            ),
+            warning=None,
+        )
+
+        # ------------------------------------------------------
+        # CHOCH — actual AQSD ChangeOfCharacterResult schema
+        # ------------------------------------------------------
+
+        choch_detected = bool(
+            first_value(
+                choch_result,
+                (
+                    "detected",
+                ),
+                False,
+            )
+        )
+
+        choch_direction = normalize_text(
+            first_value(
+                choch_result,
+                (
+                    "direction",
+                ),
+                "NONE",
+            ),
+            "NONE",
+        )
+
+        choch_state = (
+    choch_direction
+    if (
+        choch_detected
+        and choch_direction not in {
+            "NONE",
+            "NEUTRAL",
+            "UNKNOWN",
+        }
+    )
+    else "NONE"
+)
+
+        choch_bias = (
+            choch_direction
+            if choch_direction in {
+                "BULLISH",
+                "BEARISH",
+            }
+            else "NEUTRAL"
+        )
+
+        previous_structure = normalize_text(
+            first_value(
+                choch_result,
+                (
+                    "previous_structure",
+                ),
+                "NOT AVAILABLE",
+            ),
+            "NOT AVAILABLE",
+        )
+
+        choch_reference = first_value(
+            choch_result,
+            (
+                "reference_swing",
+            ),
+            None,
+        )
+
+        choch_reference_type = normalize_text(
+            first_value(
+                choch_reference,
+                (
+                    "swing_type",
+                    "type",
+                ),
+                "NOT APPLICABLE",
+            ),
+            "NOT APPLICABLE",
+        )
+
+        choch_component = StructureComponentResult(
+            component_name="CHANGE OF CHARACTER ENGINE",
+            available=True,
+            status="SUCCESS",
+            bias=choch_bias,
+            direction=choch_direction,
+            state=choch_state,
+            quality=(
+                "REVERSAL SIGNAL"
+                if choch_detected
+                else "NO NEW CHARACTER CHANGE"
+            ),
+            risk=(
+                "ELEVATED REVERSAL RISK"
+                if choch_detected
+                else "NORMAL"
+            ),
+            confidence=common_confidence,
+            expected_behaviour=(
+                "POTENTIAL STRUCTURAL REVERSAL"
+                if choch_detected
+                else "NO NEW STRUCTURAL REVERSAL SIGNAL"
+            ),
+            summary=(
+                f"{choch_state} | "
+                f"PREVIOUS STRUCTURE {previous_structure}"
+            ),
+            explanation=(
+                f"CHOCH detected: {'YES' if choch_detected else 'NO'}. "
+                f"Direction: {choch_direction}. "
+                f"Previous structure: {previous_structure}. "
+                f"Reference swing: {choch_reference_type}."
+            ),
+            warning=None,
+        )
+
+        phase_component = normalize_component_result(
+            component_name="MARKET PHASE ENGINE",
+            result=phase_result,
+            bias_fields=(
+                "market_bias",
+                "phase_bias",
+                "bias",
+                "direction",
+            ),
+            direction_fields=(
+                "phase_direction",
+                "market_direction",
+                "direction",
+            ),
+            state_fields=(
+                "market_phase",
+                "phase",
+                "state",
+            ),
+            quality_fields=(
+                "phase_quality",
+                "quality",
+                "strength",
+            ),
+            risk_fields=(
+                "risk_level",
+                "phase_risk",
+            ),
+            confidence_fields=(
+                "confidence",
+                "phase_confidence",
+            ),
+        )
+
+        legacy_component = normalize_component_result(
+            component_name="MARKET REGIME ENGINE",
+            result=regime_result,
+            bias_fields=(
+                "market_bias",
+                "regime_bias",
+                "bias",
+                "direction",
+            ),
+            direction_fields=(
+                "market_direction",
+                "regime_direction",
+                "direction",
+            ),
+            state_fields=(
+                "market_regime",
+                "regime",
+                "state",
+            ),
+            quality_fields=(
+                "regime_strength",
+                "quality",
+                "strength",
+            ),
+            risk_fields=(
+                "risk_level",
+                "regime_risk",
+            ),
+            confidence_fields=(
+                "confidence",
+                "regime_confidence",
+            ),
+        )
+
+        # Apply the combined confidence where individual components
+        # do not expose their own confidence value.
+
+        def apply_confidence(
+            component: StructureComponentResult,
+        ) -> StructureComponentResult:
+            if component.confidence > 0:
+                return component
+
+            return StructureComponentResult(
+                component_name=component.component_name,
+                available=component.available,
+                status=component.status,
+                bias=component.bias,
+                direction=component.direction,
+                state=component.state,
+                quality=component.quality,
+                risk=component.risk,
+                confidence=common_confidence,
+                expected_behaviour=(
+                    component.expected_behaviour
+                ),
+                summary=component.summary,
+                explanation=component.explanation,
+                warning=component.warning,
+            )
+
+        return (
+            apply_confidence(
+                legacy_component
+            ),
+            apply_confidence(
+                trend_component
+            ),
+            apply_confidence(
+                swing_component
+            ),
+            apply_confidence(
+                bos_component
+            ),
+            apply_confidence(
+                choch_component
+            ),
+            apply_confidence(
+                phase_component
+            ),
+        )
+
+    except Exception as exc:
+        warning = (
+            "Integrated Market Structure analysis failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        return (
+            empty_component(
+                component_name="MARKET REGIME ENGINE",
+                warning=warning,
+            ),
+            empty_component(
+                component_name="TREND ENGINE",
+                warning=warning,
+            ),
+            empty_component(
+                component_name="SWING STRUCTURE ENGINE",
+                warning=warning,
+            ),
+            empty_component(
+                component_name="BREAK OF STRUCTURE ENGINE",
+                warning=warning,
+            ),
+            empty_component(
+                component_name="CHANGE OF CHARACTER ENGINE",
+                warning=warning,
+            ),
+            empty_component(
+                component_name="MARKET PHASE ENGINE",
+                warning=warning,
+            ),
+        )
+
+# ==========================================================
 # MAIN MASTER
 # ==========================================================
 
@@ -2097,14 +2286,6 @@ def run_market_structure_master(
         symbol=symbol,
     )
 
-    components = (
-        legacy_component,
-        trend_component,
-        swing_component,
-        bos_component,
-        choch_component,
-        phase_component,
-    )
     components = (
         legacy_component,
         trend_component,

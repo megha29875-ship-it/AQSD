@@ -1,5 +1,5 @@
 """
-AQSD Daily Orchestrator v1.0
+AQSD Daily Orchestrator v1.1.1
 
 Runs the complete AQSD analytics pipeline in sequence.
 
@@ -76,6 +76,12 @@ PIPELINE = [
         ["--run"],
         True,
     ),
+    (
+        "Market History Recorder",
+        "aqsd_intelligence/market_history_recorder.py",
+        ["--date", "{date}"],
+        True,
+    ),
 ]
 
 
@@ -93,6 +99,7 @@ def run_step(
     script_name: str,
     arguments: list[str],
     underlying: str,
+    trade_date: str,
     required: bool,
 ) -> dict:
     script_path = SCRIPTS / script_name
@@ -110,15 +117,40 @@ def run_step(
         }
 
     formatted_arguments = [
-        value.format(underlying=underlying)
+        value.format(
+            underlying=underlying,
+            date=trade_date,
+        )
         for value in arguments
     ]
 
-    command = [
-        str(PYTHON),
-        str(script_path),
-        *formatted_arguments,
-    ]
+    # Nested AQSD package scripts must run with ``-m`` so imports such as
+    # ``from Scripts.aqsd_intelligence...`` resolve from the project root.
+    #
+    # Example:
+    # Scripts/aqsd_intelligence/market_history_recorder.py
+    # becomes:
+    # python -m Scripts.aqsd_intelligence.market_history_recorder
+    relative_script = script_path.relative_to(BASE)
+
+    if len(relative_script.parts) > 2:
+        module_name = ".".join(
+            relative_script.with_suffix("").parts
+        )
+
+        command = [
+            str(PYTHON),
+            "-m",
+            module_name,
+            *formatted_arguments,
+        ]
+
+    else:
+        command = [
+            str(PYTHON),
+            str(script_path),
+            *formatted_arguments,
+        ]
 
     log(f"{name}: STARTED")
 
@@ -215,11 +247,15 @@ def save_summary(rows: list[dict]) -> None:
             )
 
 
-def run_pipeline(underlying: str) -> None:
+def run_pipeline(
+    underlying: str,
+    trade_date: str,
+) -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
 
     log("=" * 80)
     log(f"AQSD PIPELINE STARTED FOR {underlying}")
+    log(f"Trade Date: {trade_date}")
     log(f"Python: {PYTHON}")
 
     results = []
@@ -230,6 +266,7 @@ def run_pipeline(underlying: str) -> None:
             script,
             args,
             underlying,
+            trade_date,
             required,
         )
         results.append(result)
@@ -293,6 +330,16 @@ def main() -> None:
         default="BANKNIFTY",
     )
 
+    parser.add_argument(
+        "--date",
+        required=False,
+        help=(
+            "Trading date in YYYY-MM-DD format. "
+            "Required for --run so every downstream record uses "
+            "the same analysis date."
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.status:
@@ -300,13 +347,32 @@ def main() -> None:
         return
 
     if args.run:
+        if not args.date:
+            raise SystemExit(
+                "Please provide --date in YYYY-MM-DD format, for example:\n"
+                "python aqsd_daily_orchestrator.py "
+                "--run --underlying BANKNIFTY --date 2026-07-31"
+            )
+
+        try:
+            datetime.strptime(
+                args.date,
+                "%Y-%m-%d",
+            )
+        except ValueError as exc:
+            raise SystemExit(
+                "Invalid --date. Use YYYY-MM-DD."
+            ) from exc
+
         run_pipeline(
-            args.underlying.strip().upper()
+            args.underlying.strip().upper(),
+            args.date,
         )
         return
 
     raise SystemExit(
-        "Use --status or --run --underlying BANKNIFTY"
+        "Use --status or --run --underlying BANKNIFTY "
+        "--date YYYY-MM-DD"
     )
 
 

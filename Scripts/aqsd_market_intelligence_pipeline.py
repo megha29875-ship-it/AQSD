@@ -3,7 +3,7 @@ AQSD
 Market Intelligence Daily Pipeline
 
 Module : MIP-001
-Version: 1.0.0
+Version: 1.1.0
 Author : AQSD
 
 Description
@@ -55,7 +55,7 @@ from Scripts.aqsd_core.trading_calendar import latest_trading_day
 # ==========================================================
 
 MODULE_ID: Final[str] = "MIP-001"
-MODULE_VERSION: Final[str] = "1.0.0"
+MODULE_VERSION: Final[str] = "1.1.0"
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parents[1]
 
@@ -124,6 +124,10 @@ class MarketIntelligencePipelineResult:
     breadth_stage: PipelineStageResult
     sector_stage: PipelineStageResult
     regime_stage: PipelineStageResult
+
+    # Full Stage-4 result retained for downstream AQSD engines.
+    # This prevents Market Regime from being executed a second time.
+    regime_result: object | None
 
     completed_stages: int
     total_stages: int
@@ -830,9 +834,16 @@ def run_regime_stage(
     trade_date: date,
     source_file: Path,
     weekly_lookback_sessions: int,
-) -> PipelineStageResult:
+) -> tuple[PipelineStageResult, object | None]:
     """
     Run the Market Regime Engine.
+
+    Returns both:
+    1. The normalized PipelineStageResult used by this pipeline.
+    2. The complete MarketRegimeResult for downstream consumers.
+
+    Retaining the full result ensures the Market Regime Engine is
+    executed only once per Market Intelligence Pipeline run.
     """
 
     stage_number = 4
@@ -903,7 +914,10 @@ def run_regime_stage(
             stage_result
         )
 
-        return stage_result
+        return (
+            stage_result,
+            result,
+        )
 
     except Exception as exc:
         stage_result = build_failed_stage(
@@ -918,7 +932,10 @@ def run_regime_stage(
             stage_result
         )
 
-        return stage_result
+        return (
+            stage_result,
+            None,
+        )
 
 
 # ==========================================================
@@ -1173,6 +1190,8 @@ def run_market_intelligence_pipeline(
         ),
     )
 
+    regime_result: object | None = None
+
     if breadth_stage.status == "FAILED":
         sector_stage = build_not_run_stage(
             stage_number=3,
@@ -1225,7 +1244,10 @@ def run_market_intelligence_pipeline(
             )
 
         else:
-            regime_stage = run_regime_stage(
+            (
+                regime_stage,
+                regime_result,
+            ) = run_regime_stage(
                 trade_date=selected_trade_date,
                 source_file=source_file,
                 weekly_lookback_sessions=(
@@ -1321,6 +1343,7 @@ def run_market_intelligence_pipeline(
         breadth_stage=breadth_stage,
         sector_stage=sector_stage,
         regime_stage=regime_stage,
+        regime_result=regime_result,
 
         completed_stages=completed_stages,
         total_stages=len(stages),

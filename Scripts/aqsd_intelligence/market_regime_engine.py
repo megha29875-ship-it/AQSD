@@ -884,16 +884,19 @@ def run_options_adapter(
     """
     Run and normalize AQSD Options Intelligence.
 
-    The existing Options Intelligence module exposes:
+    The Options Intelligence calculate() function returns:
 
-        calculate(underlying, atm_strikes)
+        summary_frame, walls_frame
 
-    It returns:
+    summary_frame is normally a one-row pandas DataFrame.
 
-        summary, walls
+    This adapter converts that DataFrame to a single row before
+    reading individual fields. This prevents pandas Series text
+    such as:
 
-    This adapter calls calculate() directly so command-line arguments,
-    display output and duplicate file exports are avoided.
+        Name: reversal_signal, dtype: str
+
+    from leaking into the Market Regime Engine output.
     """
 
     engine_name = "OPTIONS INTELLIGENCE"
@@ -913,6 +916,10 @@ def run_options_adapter(
             5,
         )
 
+        # --------------------------------------------------
+        # VALIDATE RESULT
+        # --------------------------------------------------
+
         if not isinstance(
             calculation_result,
             tuple,
@@ -928,23 +935,53 @@ def run_options_adapter(
 
         summary = calculation_result[0]
 
+        # --------------------------------------------------
+        # IMPORTANT FIX
+        # --------------------------------------------------
+        # Options Intelligence returns a one-row DataFrame.
+        # Convert it to a pandas Series representing that row.
+        # This ensures .get() returns scalar values rather
+        # than whole pandas Series/columns.
+        # --------------------------------------------------
+
+        if hasattr(summary, "iloc"):
+            if getattr(summary, "empty", False):
+                raise ValueError(
+                    "Options Intelligence returned an empty "
+                    "summary DataFrame."
+                )
+
+            # DataFrame -> first row Series.
+            if getattr(summary, "ndim", 1) == 2:
+                summary = summary.iloc[0]
+
+        # --------------------------------------------------
+        # SAFE FIELD READER
+        # --------------------------------------------------
+
         def read_summary_value(
             names: tuple[str, ...],
             default: object = None,
         ) -> object:
             """
-            Read one value from a dictionary, pandas Series,
-            dataclass or ordinary result object.
+            Read one scalar value from a dictionary,
+            pandas Series, dataclass or ordinary object.
             """
 
             for name in names:
+
+                # Dictionary
                 if isinstance(
                     summary,
                     dict,
                 ):
                     if name in summary:
-                        return summary[name]
+                        value = summary[name]
 
+                        if value is not None:
+                            return value
+
+                # pandas Series / dictionary-like object
                 if hasattr(
                     summary,
                     "get",
@@ -961,16 +998,24 @@ def run_options_adapter(
                     except Exception:
                         pass
 
+                # Dataclass / ordinary object
                 if hasattr(
                     summary,
                     name,
                 ):
-                    return getattr(
+                    value = getattr(
                         summary,
                         name,
                     )
 
+                    if value is not None:
+                        return value
+
             return default
+
+        # --------------------------------------------------
+        # CORE OPTIONS CLASSIFICATION
+        # --------------------------------------------------
 
         bias = normalize_text(
             read_summary_value(
@@ -1087,6 +1132,120 @@ def run_options_adapter(
             )
         )
 
+        # --------------------------------------------------
+        # OPTIONS PROBABILITIES
+        # --------------------------------------------------
+        # Prefer actual probabilities supplied by the
+        # Options Intelligence Engine.
+        # --------------------------------------------------
+
+        bullish_probability_value = read_summary_value(
+            (
+                "bullish_reversal_probability",
+                "bullish_probability",
+                "probability_up",
+                "Bullish Reversal Probability",
+                "Bullish Probability",
+            ),
+            None,
+        )
+
+        bearish_probability_value = read_summary_value(
+            (
+                "bearish_reversal_probability",
+                "bearish_probability",
+                "probability_down",
+                "Bearish Reversal Probability",
+                "Bearish Probability",
+            ),
+            None,
+        )
+
+        continuation_probability_value = read_summary_value(
+            (
+                "continuation_probability",
+                "neutral_probability",
+                "Continuation Probability",
+                "Neutral Probability",
+            ),
+            None,
+        )
+
+        # --------------------------------------------------
+        # USE REAL OPTIONS PROBABILITIES WHEN AVAILABLE
+        # --------------------------------------------------
+
+        if (
+            bullish_probability_value is not None
+            and bearish_probability_value is not None
+        ):
+            bullish_score = safe_int(
+                bullish_probability_value,
+                0,
+            )
+
+            bearish_score = safe_int(
+                bearish_probability_value,
+                0,
+            )
+
+            if continuation_probability_value is not None:
+                neutral_score = safe_int(
+                    continuation_probability_value,
+                    0,
+                )
+            else:
+                neutral_score = max(
+                    0,
+                    100
+                    - bullish_score
+                    - bearish_score,
+                )
+
+            total_score = (
+                bullish_score
+                + bearish_score
+                + neutral_score
+            )
+
+            # Normalize because Options probabilities may
+            # represent independent probabilities rather
+            # than mutually exclusive percentages.
+            if total_score > 0:
+                bullish_score = clamp_score(
+                    bullish_score
+                    / total_score
+                    * 100
+                )
+
+                bearish_score = clamp_score(
+                    bearish_score
+                    / total_score
+                    * 100
+                )
+
+                neutral_score = clamp_score(
+                    neutral_score
+                    / total_score
+                    * 100
+                )
+
+        else:
+            (
+                bullish_score,
+                bearish_score,
+                neutral_score,
+            ) = calculate_direction_scores(
+                bias,
+                direction,
+                environment,
+                expected_behaviour,
+            )
+
+        # --------------------------------------------------
+        # SUMMARY
+        # --------------------------------------------------
+
         concise_summary = str(
             read_summary_value(
                 (
@@ -1097,8 +1256,10 @@ def run_options_adapter(
                     "Interpretation",
                 ),
                 (
-                    f"{bias} | {direction} | "
-                    f"{environment} | {confidence}% CONFIDENCE"
+                    f"{bias} | "
+                    f"{direction} | "
+                    f"{environment} | "
+                    f"{confidence}% CONFIDENCE"
                 ),
             )
         )
@@ -1116,15 +1277,336 @@ def run_options_adapter(
             )
         )
 
-        (
-            bullish_score,
-            bearish_score,
-            neutral_score,
-        ) = calculate_direction_scores(
-            bias,
-            direction,
-            environment,
-            expected_behaviour,
+        # --------------------------------------------------
+        # FINAL NORMALIZED SNAPSHOT
+        # --------------------------------------------------
+
+        return EngineSnapshot(
+            engine_name=engine_name,
+            available=True,
+            status=status,
+
+            bias=bias,
+            direction=direction,
+            environment=environment,
+            strength=strength,
+            risk=risk,
+            expected_behaviour=expected_behaviour,
+
+            confidence=confidence,
+
+            bullish_score=bullish_score,
+            bearish_score=bearish_score,
+            neutral_score=neutral_score,
+
+            summary=concise_summary,
+            explanation=explanation,
+
+            warning=None,
+        )
+
+    except Exception as exc:
+        return empty_snapshot(
+            engine_name=engine_name,
+            warning=(
+                "Options Intelligence could not be connected: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+# ==========================================================
+# MARKET STRUCTURE ADAPTER
+# ==========================================================
+
+def run_structure_adapter(
+    *,
+    requested_date: date,
+) -> EngineSnapshot:
+    """
+    Run the AQSD Market Structure Master and convert its result
+    into a normalized Market Regime Engine snapshot.
+
+    Source engine
+    -------------
+    Scripts.aqsd_market_structure.market_structure_master
+
+    This adapter does not perform its own market-structure
+    calculations. It consumes the completed Market Structure
+    Master result.
+    """
+
+    engine_name = "MARKET STRUCTURE"
+
+    try:
+        module = importlib.import_module(
+            "Scripts.aqsd_market_structure."
+            "market_structure_master"
+        )
+
+        runner = None
+
+        runner_candidates = (
+            "run_market_structure_master",
+            "run_market_structure",
+        )
+
+        for runner_name in runner_candidates:
+            if hasattr(
+                module,
+                runner_name,
+            ):
+                candidate = getattr(
+                    module,
+                    runner_name,
+                )
+
+                if callable(candidate):
+                    runner = candidate
+                    break
+
+        if runner is None:
+            raise AttributeError(
+                "Market Structure Master runner was not found."
+            )
+
+        result = call_with_supported_arguments(
+            runner,
+            {
+                "requested_date": requested_date,
+            },
+        )
+
+        # --------------------------------------------------
+        # CORE CLASSIFICATION
+        # --------------------------------------------------
+
+        bias = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "market_bias",
+                    "bias",
+                ),
+                "UNKNOWN",
+            )
+        )
+
+        direction = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "trend_direction",
+                    "market_direction",
+                    "direction",
+                ),
+                "UNKNOWN",
+            )
+        )
+
+        market_phase = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "market_phase",
+                    "phase",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        structural_state = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "structural_state",
+                    "swing_structure",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        bos_state = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "bos_state",
+                ),
+                "NONE",
+            )
+        )
+
+        choch_state = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "choch_state",
+                ),
+                "NONE",
+            )
+        )
+
+        # --------------------------------------------------
+        # ENVIRONMENT
+        # --------------------------------------------------
+
+        environment = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "market_environment",
+                    "market_regime",
+                    "market_phase",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        strength = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "structural_quality",
+                    "trend_quality",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        risk = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "structure_risk",
+                    "risk_level",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        confidence = safe_int(
+            first_attribute(
+                result,
+                (
+                    "confidence",
+                    "overall_confidence",
+                ),
+                0,
+            )
+        )
+
+        expected_behaviour = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "expected_behaviour",
+                    "expected_behavior",
+                ),
+                "NOT AVAILABLE",
+            )
+        )
+
+        status = normalize_text(
+            first_attribute(
+                result,
+                (
+                    "status",
+                    "overall_status",
+                ),
+                "UNKNOWN",
+            )
+        )
+
+        # --------------------------------------------------
+        # PROBABILITIES
+        # --------------------------------------------------
+
+        structure_bullish_probability = first_attribute(
+            result,
+            (
+                "bullish_probability",
+            ),
+            None,
+        )
+
+        structure_bearish_probability = first_attribute(
+            result,
+            (
+                "bearish_probability",
+            ),
+            None,
+        )
+
+        structure_neutral_probability = first_attribute(
+            result,
+            (
+                "neutral_probability",
+            ),
+            None,
+        )
+
+        if (
+            structure_bullish_probability is not None
+            and structure_bearish_probability is not None
+            and structure_neutral_probability is not None
+        ):
+            bullish = safe_int(
+                structure_bullish_probability,
+                0,
+            )
+
+            bearish = safe_int(
+                structure_bearish_probability,
+                0,
+            )
+
+            neutral = safe_int(
+                structure_neutral_probability,
+                0,
+            )
+
+        else:
+            (
+                bullish,
+                bearish,
+                neutral,
+            ) = calculate_direction_scores(
+                bias,
+                direction,
+                environment,
+                expected_behaviour,
+            )
+
+        # --------------------------------------------------
+        # SUMMARY
+        # --------------------------------------------------
+
+        summary = str(
+            first_attribute(
+                result,
+                (
+                    "concise_summary",
+                    "master_conclusion",
+                ),
+                (
+                    f"{bias} | "
+                    f"TREND {direction} | "
+                    f"STRUCTURE {structural_state} | "
+                    f"BOS {bos_state} | "
+                    f"CHOCH {choch_state} | "
+                    f"PHASE {market_phase}"
+                ),
+            )
+        )
+
+        explanation = str(
+            first_attribute(
+                result,
+                (
+                    "explanation",
+                    "master_conclusion",
+                    "concise_summary",
+                ),
+                summary,
+            )
         )
 
         return EngineSnapshot(
@@ -1140,12 +1622,14 @@ def run_options_adapter(
             expected_behaviour=expected_behaviour,
 
             confidence=confidence,
-            bullish_score=bullish_score,
-            bearish_score=bearish_score,
-            neutral_score=neutral_score,
 
-            summary=concise_summary,
+            bullish_score=bullish,
+            bearish_score=bearish,
+            neutral_score=neutral,
+
+            summary=summary,
             explanation=explanation,
+
             warning=None,
         )
 
@@ -1153,133 +1637,11 @@ def run_options_adapter(
         return empty_snapshot(
             engine_name=engine_name,
             warning=(
-                "Options Intelligence could not be connected: "
-                f"{exc}"
+                "Market Structure Master could not be connected "
+                "to the Market Regime Engine: "
+                f"{type(exc).__name__}: {exc}"
             ),
         )
-# ==========================================================
-# MARKET STRUCTURE ADAPTER
-# ==========================================================
-
-def run_structure_adapter(
-    *,
-    requested_date: date,
-) -> EngineSnapshot:
-    """
-    Attempt to run an available AQSD Market Structure engine.
-
-    Market Structure remains optional until the exact final
-    decision-engine interface is connected.
-    """
-
-    engine_name = "MARKET STRUCTURE"
-
-    module_candidates = (
-        (
-            "Scripts.aqsd_market_structure."
-            "market_structure_decision_engine"
-        ),
-        (
-            "Scripts.aqsd_market_structure."
-            "decision_engine"
-        ),
-    )
-
-    runner_candidates = (
-        "run_market_structure_decision_engine",
-        "run_market_structure_decision",
-        "analyze_market_structure",
-    )
-
-    errors: list[str] = []
-
-    for module_name in module_candidates:
-        try:
-            module = importlib.import_module(
-                module_name
-            )
-
-            runner = None
-
-            for runner_name in runner_candidates:
-                if hasattr(
-                    module,
-                    runner_name,
-                ):
-                    runner = getattr(
-                        module,
-                        runner_name,
-                    )
-                    break
-
-            if runner is None:
-                raise AttributeError(
-                    "No supported Market Structure runner was found."
-                )
-
-            result = call_with_supported_arguments(
-                runner,
-                {
-                    "requested_date": requested_date,
-                    "trade_date": requested_date,
-                    "analysis_date": requested_date,
-                },
-            )
-
-            return build_snapshot_from_result(
-                engine_name=engine_name,
-                result=result,
-                bias_fields=(
-                    "market_bias",
-                    "trend",
-                    "bias",
-                    "trend_direction",
-                ),
-                direction_fields=(
-                    "trend_direction",
-                    "structure_direction",
-                    "direction",
-                    "market_direction",
-                ),
-                environment_fields=(
-                    "market_environment",
-                    "market_phase",
-                    "market_regime",
-                    "structural_state",
-                ),
-                strength_fields=(
-                    "trend_quality",
-                    "structural_quality",
-                    "trend_strength",
-                    "structure_quality",
-                ),
-                risk_fields=(
-                    "risk_level",
-                    "structure_risk",
-                    "market_risk",
-                ),
-                confidence_fields=(
-                    "confidence",
-                    "probability",
-                    "overall_confidence",
-                    "structure_confidence",
-                ),
-            )
-
-        except Exception as exc:
-            errors.append(
-                f"{module_name}: {exc}"
-            )
-
-    return empty_snapshot(
-        engine_name=engine_name,
-        warning=(
-            "Market Structure Intelligence is not yet connected "
-            "to the Market Regime Engine: "
-            + " | ".join(errors)
-        ),
-    )
-
 
 # ==========================================================
 # CONSOLIDATED PROBABILITY ENGINE
