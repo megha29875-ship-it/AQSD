@@ -1,0 +1,14 @@
+{
+  "module_id": "SMD-006",
+  "module_version": "1.0.0",
+  "created_at": "2026-08-02T21:29:02+05:30",
+  "source_file": "C:\\Users\\megha\\AQSD\\Output\\AQSD_Security_Master_Enriched.csv",
+  "baseline_file": "C:\\Users\\megha\\AQSD\\Data\\Security_Master\\AQSD_Security_Master_Baseline.csv",
+  "rows": 249,
+  "sha256": "fa038d6131ca4f9f14e700d2de66efc8f20a947938179996e8e1b1eb5988f2a4",
+  "critical_issues": 0,
+  "historical_database_modified": false,
+  "source_security_master_modified": false,
+  "baseline_policy": "PERSISTENT_UNTIL_EXPLICIT_REPLACE",
+  "status": "SUCCESS"
+}
