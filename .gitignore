@@ -92,3 +92,4 @@ Databases/*.db-shm
 Data/Raw/
 Data/Processed/
 Data/Historical/
+.env
