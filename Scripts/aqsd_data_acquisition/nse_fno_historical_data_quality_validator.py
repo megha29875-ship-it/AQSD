@@ -243,27 +243,43 @@ def load_trading_calendar() -> list[date]:
         raise RuntimeError("No valid trading sessions in AQSD calendar.")
     return sessions
 
-
 def resolve_sessions(
     sessions: int,
     end_date: date | None,
 ) -> list[date]:
+    """
+    Resolve the most recent completed NSE trading sessions.
+
+    Future trading-calendar dates must never be selected automatically.
+    If --end-date is supplied, validation is capped at the earlier of
+    --end-date and today's date.
+    """
     if sessions <= 0:
         raise ValueError("--sessions must be greater than zero.")
 
     values = load_trading_calendar()
 
+    today = date.today()
+    effective_end_date = today
+
     if end_date is not None:
-        values = [value for value in values if value <= end_date]
+        effective_end_date = min(end_date, today)
+
+    values = [
+        value
+        for value in values
+        if value <= effective_end_date
+    ]
 
     if len(values) < sessions:
         raise RuntimeError(
-            f"Not enough trading sessions. Requested={sessions}, "
-            f"Available={len(values)}."
+            f"Not enough completed trading sessions. "
+            f"Requested={sessions}, "
+            f"Available={len(values)}, "
+            f"EffectiveEndDate={effective_end_date}."
         )
 
     return values[-sessions:]
-
 
 def append_issue(
     issues: list[IssueRow],
