@@ -3,7 +3,7 @@ AQSD
 NSE F&O Historical Database Builder
 
 Module : FDB-001
-Version: 1.2.0
+Version: 1.3.0
 Author : AQSD
 
 Purpose
@@ -37,14 +37,16 @@ Design Principles
 - Entire NSE F&O universe
 - Row-based architecture
 - Incremental / restart-safe
-- Existing date can be refreshed without duplication
+- Normal runs ingest only new or incomplete sessions
+- Existing complete dates are skipped automatically
+- --rebuild explicitly refreshes the selected date range without duplication
 - Millions of rows supported
 - Database is indexed for research queries
 - Raw NSE data is never modified
 - Processed NSE data is never modified
 - No historical data is fabricated
 - NDQ-001 SUCCESS is required before database ingestion
-"""
+""" 
 
 from __future__ import annotations
 
@@ -52,6 +54,10 @@ import argparse
 import json
 import sqlite3
 import time
+
+from Scripts.aqsd_data_acquisition.nse_fno_database_freeze_guard import (
+    assert_full_rebuild_allowed,
+)
 
 from datetime import date, datetime
 from pathlib import Path
@@ -73,7 +79,7 @@ from Scripts.aqsd_core.paths import (
 # ==========================================================
 
 MODULE_ID: Final[str] = "FDB-001"
-MODULE_VERSION: Final[str] = "1.2.0"
+MODULE_VERSION: Final[str] = "1.3.0"
 
 PROCESSED_ROOT: Final[Path] = (
     NSE_DERIVATIVES_PROCESSED_DIR
@@ -317,6 +323,270 @@ def resolve_target_dates(
     return dates[
         -sessions:
     ]
+
+
+# ==========================================================
+# INCREMENTAL SESSION DISCOVERY
+# ==========================================================
+
+def csv_has_data_rows(
+    csv_file: Path,
+) -> bool:
+    """
+    Return True when a processed CSV contains at least one data row.
+
+    Only the header and first data line are inspected. The file is not
+    loaded into memory.
+    """
+
+    if not csv_file.is_file():
+        return False
+
+    with csv_file.open(
+        "r",
+        encoding="utf-8-sig",
+        errors="replace",
+        newline="",
+    ) as handle:
+        header = handle.readline()
+        if not header:
+            return False
+
+        return bool(handle.readline())
+
+
+def stored_session_counts(
+    connection: sqlite3.Connection,
+) -> tuple[dict[str, int], dict[str, int], set[str]]:
+    """
+    Read current database coverage without scanning CSV files.
+
+    Returns:
+        futures rows by date,
+        options rows by date,
+        dates present in daily_summary.
+    """
+
+    futures = {
+        str(trade_date): int(rows)
+        for trade_date, rows in connection.execute(
+            """
+            SELECT trade_date, COUNT(*)
+            FROM futures_history
+            GROUP BY trade_date;
+            """
+        )
+    }
+
+    options = {
+        str(trade_date): int(rows)
+        for trade_date, rows in connection.execute(
+            """
+            SELECT trade_date, COUNT(*)
+            FROM options_history
+            GROUP BY trade_date;
+            """
+        )
+    }
+
+    summaries = {
+        str(row[0])
+        for row in connection.execute(
+            """
+            SELECT trade_date
+            FROM daily_summary;
+            """
+        )
+    }
+
+    return futures, options, summaries
+
+
+def resolve_incremental_dates(
+    connection: sqlite3.Connection,
+    *,
+    target_dates: list[date],
+    rebuild: bool,
+) -> tuple[list[date], list[date], list[date]]:
+    """
+    Split the requested range into build, repair and skipped sessions.
+
+    Normal mode:
+        - new date -> BUILD
+        - incomplete/partially stored date -> REPAIR
+        - complete date -> SKIP
+
+    Rebuild mode:
+        - every requested date -> BUILD
+
+    A zero-row futures/options side is treated as incomplete only when the
+    corresponding processed CSV actually contains data. This avoids
+    fabricating data for legitimately empty source files.
+    """
+
+    if rebuild:
+        return list(target_dates), [], []
+
+    futures_counts, options_counts, summary_dates = stored_session_counts(
+        connection
+    )
+
+    build_dates: list[date] = []
+    repair_dates: list[date] = []
+    skipped_dates: list[date] = []
+
+    for trade_date in target_dates:
+        date_text = trade_date.isoformat()
+        directory = PROCESSED_ROOT / date_text
+        futures_file = directory / "futures.csv"
+        options_file = directory / "options.csv"
+
+        futures_rows = futures_counts.get(date_text, 0)
+        options_rows = options_counts.get(date_text, 0)
+        has_summary = date_text in summary_dates
+
+        any_history = futures_rows > 0 or options_rows > 0
+
+        if not any_history and not has_summary:
+            build_dates.append(trade_date)
+            continue
+
+        incomplete = False
+
+        if futures_rows == 0 and csv_has_data_rows(futures_file):
+            incomplete = True
+
+        if options_rows == 0 and csv_has_data_rows(options_file):
+            incomplete = True
+
+        if any_history and not has_summary:
+            incomplete = True
+
+        if incomplete:
+            repair_dates.append(trade_date)
+        else:
+            skipped_dates.append(trade_date)
+
+    return build_dates, repair_dates, skipped_dates
+
+
+def update_contract_master_for_dates(
+    connection: sqlite3.Connection,
+    *,
+    trade_dates: list[date],
+) -> None:
+    """
+    Incrementally extend contract_master for genuinely new sessions.
+
+    This avoids rebuilding contract_master from the complete multi-million
+    row history after every daily update.
+    """
+
+    if not trade_dates:
+        return
+
+    date_values = [value.isoformat() for value in trade_dates]
+    placeholders = ", ".join("?" for _ in date_values)
+    timestamp = datetime.now().isoformat(timespec="seconds")
+
+    sql = f"""
+        INSERT INTO contract_master
+        (
+            contract_key,
+            contract_type,
+            instrument,
+            aqsd_underlying,
+            underlying,
+            symbol,
+            expiry,
+            strike,
+            option_type,
+            first_seen,
+            last_seen,
+            observations,
+            updated_at
+        )
+        SELECT
+            contract_key,
+            contract_type,
+            instrument,
+            aqsd_underlying,
+            underlying,
+            symbol,
+            expiry,
+            strike,
+            option_type,
+            MIN(trade_date),
+            MAX(trade_date),
+            COUNT(*),
+            ?
+        FROM
+        (
+            SELECT
+                COALESCE(contract_type, '') || '|' ||
+                COALESCE(instrument, '') || '|' ||
+                COALESCE(aqsd_underlying, '') || '|' ||
+                COALESCE(symbol, '') || '|' ||
+                COALESCE(expiry, '') || '|' ||
+                COALESCE(CAST(strike AS TEXT), '') || '|' ||
+                COALESCE(option_type, '') AS contract_key,
+                contract_type,
+                instrument,
+                aqsd_underlying,
+                underlying,
+                symbol,
+                expiry,
+                strike,
+                option_type,
+                trade_date
+            FROM futures_history
+            WHERE trade_date IN ({placeholders})
+
+            UNION ALL
+
+            SELECT
+                COALESCE(contract_type, '') || '|' ||
+                COALESCE(instrument, '') || '|' ||
+                COALESCE(aqsd_underlying, '') || '|' ||
+                COALESCE(symbol, '') || '|' ||
+                COALESCE(expiry, '') || '|' ||
+                COALESCE(CAST(strike AS TEXT), '') || '|' ||
+                COALESCE(option_type, '') AS contract_key,
+                contract_type,
+                instrument,
+                aqsd_underlying,
+                underlying,
+                symbol,
+                expiry,
+                strike,
+                option_type,
+                trade_date
+            FROM options_history
+            WHERE trade_date IN ({placeholders})
+        )
+        GROUP BY
+            contract_key,
+            contract_type,
+            instrument,
+            aqsd_underlying,
+            underlying,
+            symbol,
+            expiry,
+            strike,
+            option_type
+        HAVING 1 = 1
+        ON CONFLICT(contract_key) DO UPDATE SET
+            first_seen = MIN(contract_master.first_seen, excluded.first_seen),
+            last_seen = MAX(contract_master.last_seen, excluded.last_seen),
+            observations = contract_master.observations + excluded.observations,
+            updated_at = excluded.updated_at;
+    """
+
+    parameters: list[object] = [timestamp]
+    parameters.extend(date_values)
+    parameters.extend(date_values)
+
+    connection.execute(sql, parameters)
 
 
 # ==========================================================
@@ -1935,9 +2205,14 @@ def run_builder(
     *,
     sessions: int,
     end_date: date | None,
+    rebuild: bool,
 ) -> dict[str, object]:
     """
     Build AQSD historical NSE F&O database.
+
+    Default behaviour is incremental. Existing complete sessions are
+    skipped. New sessions are appended. Incomplete sessions are repaired.
+    Full date refresh happens only with --rebuild.
     """
 
     ensure_directories()
@@ -1952,9 +2227,7 @@ def run_builder(
     )
 
     print()
-    print(
-        "NDQ-001 Precheck            : SUCCESS"
-    )
+    print("NDQ-001 Precheck            : SUCCESS")
     print(
         f"NDQ Critical Issues         : "
         f"{int(ndq_summary.get('critical_issues', 0) or 0)}"
@@ -1964,47 +2237,104 @@ def run_builder(
         f"{int(ndq_summary.get('failed_sessions', 0) or 0)}"
     )
 
-    connection = (
-        create_connection()
-    )
+    connection = create_connection()
 
     try:
+        create_tables(connection)
 
-        create_tables(
-            connection
+        new_dates, repair_dates, skipped_dates = resolve_incremental_dates(
+            connection,
+            target_dates=target_dates,
+            rebuild=rebuild,
         )
 
-        results: list[
-            dict[str, object]
-        ] = []
+        if rebuild:
+            build_dates = list(new_dates)
+            mode = "REBUILD"
+        else:
+            build_dates = sorted(set(new_dates + repair_dates))
+            mode = "INCREMENTAL"
 
+        print()
+        print("FDB-001 Build Mode           : " + mode)
+        print(f"Requested Range             : {len(target_dates)} sessions")
+        print(f"New Sessions                : {len(new_dates)}")
+        print(f"Repair Sessions             : {len(repair_dates)}")
+        print(f"Skipped Complete Sessions   : {len(skipped_dates)}")
+        print(f"Sessions To Process         : {len(build_dates)}")
+
+        results: list[dict[str, object]] = []
         failed = 0
+
+        results: list[dict[str, object]] = []
+        failed = 0
+
+        if not build_dates:
+            print()
+            print("Database already current. Nothing to ingest.")
+            print("Historical baseline        : PRESERVED")
+            print("Index rebuild              : SKIPPED")
+            print("Contract Master rebuild    : SKIPPED")
+            print("Status                     : SUCCESS")
+
+            return {
+                "module_id": MODULE_ID,
+                "module_version": MODULE_VERSION,
+                "status": "SUCCESS",
+                "mode": mode,
+
+                "requested_sessions": len(target_dates),
+                "resolved_sessions": len(target_dates),
+
+                "new_sessions": 0,
+                "repair_sessions": 0,
+                "skipped_sessions": len(skipped_dates),
+
+                "processed_sessions": 0,
+                "successful_sessions": 0,
+                "failed_sessions": 0,
+
+                "first_session": (
+                    target_dates[0].isoformat()
+                    if target_dates
+                    else None
+                ),
+                "last_session": (
+                    target_dates[-1].isoformat()
+                    if target_dates
+                    else None
+                ),
+
+                "message": (
+                    "Database already current. "
+                    "No ingestion required."
+                ),
+            }
 
         print()
 
+        repair_set = set(repair_dates)
+
         for number, trade_date in enumerate(
-            target_dates,
+            build_dates,
             start=1,
         ):
+            label = "REPAIR" if trade_date in repair_set else "BUILD"
 
             print(
-                f"[{number:03d}/"
-                f"{len(target_dates):03d}] "
-                f"{trade_date.isoformat()}",
+                f"[{number:03d}/{len(build_dates):03d}] "
+                f"{trade_date.isoformat()} {label}",
                 end=" ",
                 flush=True,
             )
 
             try:
-
                 result = build_session(
                     connection,
                     trade_date=trade_date,
                 )
-
-                results.append(
-                    result
-                )
+                result["action"] = label
+                results.append(result)
 
                 print(
                     f"SUCCESS | "
@@ -2013,144 +2343,152 @@ def run_builder(
                 )
 
             except Exception as exc:
-
                 failed += 1
-
                 result = {
-                    "trade_date": (
-                        trade_date.isoformat()
-                    ),
+                    "trade_date": trade_date.isoformat(),
                     "futures_rows": 0,
                     "options_rows": 0,
                     "total_rows": 0,
                     "seconds": 0,
                     "status": "FAILED",
-                    "message": (
-                        f"{type(exc).__name__}: "
-                        f"{exc}"
-                    ),
+                    "action": label,
+                    "message": f"{type(exc).__name__}: {exc}",
                 }
-
-                results.append(
-                    result
-                )
+                results.append(result)
 
                 print(
-                    f"FAILED | "
-                    f"{type(exc).__name__}: "
-                    f"{exc}"
+                    f"FAILED | {type(exc).__name__}: {exc}"
+                )
+            print()
+
+            repair_set = set(repair_dates)
+
+            for number, trade_date in enumerate(
+                build_dates,
+                start=1,
+            ):
+                label = "REPAIR" if trade_date in repair_set else "BUILD"
+
+                print(
+                    f"[{number:03d}/{len(build_dates):03d}] "
+                    f"{trade_date.isoformat()} {label}",
+                    end=" ",
+                    flush=True,
                 )
 
-        # ==================================================
-        # MASTER TABLES
-        # ==================================================
+                try:
+                    result = build_session(
+                        connection,
+                        trade_date=trade_date,
+                    )
+                    result["action"] = label
+                    results.append(result)
 
-        print()
-        print(
-            "Rebuilding Contract Master..."
-        )
+                    print(
+                        f"SUCCESS | "
+                        f"{result['total_rows']:,} rows | "
+                        f"{result['seconds']} sec"
+                    )
 
-        rebuild_contract_master(
-            connection
-        )
+                except Exception as exc:
+                    failed += 1
+                    result = {
+                        "trade_date": trade_date.isoformat(),
+                        "futures_rows": 0,
+                        "options_rows": 0,
+                        "total_rows": 0,
+                        "seconds": 0,
+                        "status": "FAILED",
+                        "action": label,
+                        "message": f"{type(exc).__name__}: {exc}",
+                    }
+                    results.append(result)
 
-        connection.commit()
+                    print(
+                        f"FAILED | {type(exc).__name__}: {exc}"
+                    )
 
-        print(
-            "Creating / validating indexes..."
-        )
+        successful_build_dates = [
+            date.fromisoformat(str(row["trade_date"]))
+            for row in results
+            if row["status"] == "SUCCESS"
+        ]
 
-        create_indexes(
-            connection
-        )
+        successful_repair_dates = [
+            date.fromisoformat(str(row["trade_date"]))
+            for row in results
+            if row["status"] == "SUCCESS"
+            and row.get("action") == "REPAIR"
+        ]
 
-        export_audit(
-            connection
-        )
+        successful_new_dates = [
+            date.fromisoformat(str(row["trade_date"]))
+            for row in results
+            if row["status"] == "SUCCESS"
+            and row.get("action") == "BUILD"
+        ]
 
-        statistics = (
-            database_statistics(
-                connection
-            )
-        )
+        # --------------------------------------------------
+        # CONTRACT MASTER
+        # --------------------------------------------------
+        # Full rebuild is required after an explicit historical rebuild or
+        # after repairing an already-existing session, because observation
+        # counts for that date may already have been represented previously.
+        # Purely new dates can safely use incremental master updates.
+
+        if successful_build_dates:
+            if rebuild or successful_repair_dates:
+                print()
+                print("Rebuilding Contract Master...")
+                rebuild_contract_master(connection)
+                connection.commit()
+            elif successful_new_dates:
+                print()
+                print("Updating Contract Master incrementally...")
+                update_contract_master_for_dates(
+                    connection,
+                    trade_dates=successful_new_dates,
+                )
+                connection.commit()
+
+        print("Creating / validating indexes...")
+        create_indexes(connection)
+
+        export_audit(connection)
+        statistics = database_statistics(connection)
 
     finally:
-
         connection.close()
 
     successful = sum(
         1
         for row in results
-        if row[
-            "status"
-        ]
-        == "SUCCESS"
+        if row["status"] == "SUCCESS"
     )
 
     summary = {
-        "module_id": (
-            MODULE_ID
-        ),
-
-        "module_version": (
-            MODULE_VERSION
-        ),
-
-        "requested_sessions": (
-            sessions
-        ),
-
-        "resolved_sessions": len(
-            target_dates
-        ),
-
-        "successful_sessions": (
-            successful
-        ),
-
-        "failed_sessions": (
-            failed
-        ),
-
-        "first_session": (
-            target_dates[0]
-            .isoformat()
-        ),
-
-        "last_session": (
-            target_dates[-1]
-            .isoformat()
-        ),
-
-        "database_file": str(
-            DATABASE_FILE
-        ),
-
-        "ndq_precheck_status": str(
-            ndq_summary.get(
-                "status",
-                ""
-            )
-        ),
-
+        "module_id": MODULE_ID,
+        "module_version": MODULE_VERSION,
+        "mode": mode,
+        "requested_sessions": sessions,
+        "resolved_sessions": len(target_dates),
+        "new_sessions": len(new_dates),
+        "repair_sessions": len(repair_dates),
+        "skipped_sessions": len(skipped_dates),
+        "processed_sessions": len(build_dates),
+        "successful_sessions": successful,
+        "failed_sessions": failed,
+        "first_session": target_dates[0].isoformat(),
+        "last_session": target_dates[-1].isoformat(),
+        "database_file": str(DATABASE_FILE),
+        "ndq_precheck_status": str(ndq_summary.get("status", "")),
         "ndq_critical_issues": int(
-            ndq_summary.get(
-                "critical_issues",
-                0
-            )
-            or 0
+            ndq_summary.get("critical_issues", 0) or 0
         ),
-
         "ndq_failed_sessions": int(
-            ndq_summary.get(
-                "failed_sessions",
-                0
-            )
-            or 0
+            ndq_summary.get("failed_sessions", 0) or 0
         ),
-
         **statistics,
-
         "status": (
             "SUCCESS"
             if failed == 0
@@ -2159,10 +2497,7 @@ def run_builder(
     }
 
     SUMMARY_JSON.write_text(
-        json.dumps(
-            summary,
-            indent=2,
-        ),
+        json.dumps(summary, indent=2),
         encoding="utf-8",
     )
 
@@ -2297,169 +2632,107 @@ def show_status() -> None:
 # DISPLAY SUMMARY
 # ==========================================================
 
-def display_summary(
-    summary: dict[str, object],
-) -> None:
+def display_summary(summary: dict[str, object]) -> None:
     """
-    Display final database build summary.
+    Display FDB-001 execution summary safely.
+
+    Supports both:
+    - normal incremental builds
+    - fast exit when database is already current
     """
 
     print()
     print("=" * 100)
-    print(
-        "AQSD NSE F&O HISTORICAL DATABASE BUILDER"
-    )
+    print("AQSD NSE F&O HISTORICAL DATABASE BUILDER")
     print("=" * 100)
 
+    print(f"Module                     : {summary.get('module_id', MODULE_ID)}")
+    print(f"Version                    : {summary.get('module_version', MODULE_VERSION)}")
+    print(f"Mode                       : {summary.get('mode', 'INCREMENTAL')}")
     print(
-        f"Module                    : "
-        f"{MODULE_ID}"
+        f"Requested Sessions         : "
+        f"{int(summary.get('requested_sessions', 0) or 0)}"
     )
-
     print(
-        f"Version                   : "
-        f"{MODULE_VERSION}"
+        f"Resolved Sessions          : "
+        f"{int(summary.get('resolved_sessions', 0) or 0)}"
     )
-
     print(
-        f"Requested Sessions        : "
-        f"{summary['requested_sessions']}"
+        f"Successful Sessions        : "
+        f"{int(summary.get('successful_sessions', 0) or 0)}"
     )
-
     print(
-        f"Resolved Sessions         : "
-        f"{summary['resolved_sessions']}"
+        f"Failed Sessions            : "
+        f"{int(summary.get('failed_sessions', 0) or 0)}"
     )
-
-    print(
-        f"Successful Sessions       : "
-        f"{summary['successful_sessions']}"
-    )
-
-    print(
-        f"Failed Sessions           : "
-        f"{summary['failed_sessions']}"
-    )
-
-    print(
-        f"First Session             : "
-        f"{summary['first_session']}"
-    )
-
-    print(
-        f"Last Session              : "
-        f"{summary['last_session']}"
-    )
+    print(f"First Session              : {summary.get('first_session', '')}")
+    print(f"Last Session               : {summary.get('last_session', '')}")
 
     print("-" * 100)
-    print(
-        "DATABASE COVERAGE"
-    )
+    print("DATABASE COVERAGE")
     print("-" * 100)
 
     print(
-        f"Stored Sessions           : "
-        f"{summary['sessions']}"
+        f"Stored Sessions            : "
+        f"{int(summary.get('sessions', summary.get('resolved_sessions', 0)) or 0)}"
     )
-
     print(
-        f"Futures Rows              : "
-        f"{summary['futures_rows']:,}"
+        f"Futures Rows               : "
+        f"{int(summary.get('futures_rows', 0) or 0):,}"
     )
-
     print(
-        f"Options Rows              : "
-        f"{summary['options_rows']:,}"
+        f"Options Rows               : "
+        f"{int(summary.get('options_rows', 0) or 0):,}"
     )
-
     print(
-        f"Total Historical Rows     : "
-        f"{summary['total_rows']:,}"
+        f"Total Historical Rows      : "
+        f"{int(summary.get('total_rows', 0) or 0):,}"
     )
-
     print(
-        f"Unique Underlyings        : "
-        f"{summary['unique_underlyings']}"
+        f"Unique Underlyings         : "
+        f"{int(summary.get('unique_underlyings', 0) or 0):,}"
     )
-
     print(
-        f"Contract Master Rows      : "
-        f"{summary['contract_master_rows']:,}"
+        f"Contract Master Rows       : "
+        f"{int(summary.get('contract_master_rows', 0) or 0):,}"
     )
 
     print("-" * 100)
 
     print(
-        f"Database                  : "
-        f"{summary['database_file']}"
+        f"Database                   : "
+        f"{summary.get('database_file', DATABASE_FILE)}"
     )
-
     print(
-        f"NDQ Precheck              : "
-        f"{summary['ndq_precheck_status']}"
+        f"NDQ Precheck               : "
+        f"{summary.get('ndq_precheck_status', 'SUCCESS')}"
     )
-
     print(
-        f"NDQ Critical Issues       : "
-        f"{summary['ndq_critical_issues']}"
+        f"NDQ Critical Issues        : "
+        f"{int(summary.get('ndq_critical_issues', 0) or 0)}"
     )
-
     print(
-        f"NDQ Failed Sessions       : "
-        f"{summary['ndq_failed_sessions']}"
+        f"NDQ Failed Sessions        : "
+        f"{int(summary.get('ndq_failed_sessions', 0) or 0)}"
     )
-
-    print(
-        f"Audit CSV                 : "
-        f"{AUDIT_CSV}"
-    )
-
-    print(
-        f"Summary JSON              : "
-        f"{SUMMARY_JSON}"
-    )
+    print(f"Audit CSV                  : {AUDIT_CSV}")
+    print(f"Summary JSON               : {SUMMARY_JSON}")
 
     print("-" * 100)
 
-    print(
-        "Architecture              : "
-        "ROW-BASED / ENTIRE NSE F&O UNIVERSE"
-    )
+    print("Architecture                : ROW-BASED / ENTIRE NSE F&O UNIVERSE")
+    print("Default Build               : INCREMENTAL / NEW + INCOMPLETE ONLY")
+    print("Historical Baseline         : FROZEN / PRESERVED")
+    print("Full Historical Rebuild     : PROTECTED BY FDB-002")
+    print("Historical Fabrication      : PROHIBITED")
 
-    print(
-        "Incremental Rebuild       : "
-        "SUPPORTED"
-    )
-
-    print(
-        "Duplicate Protection      : "
-        "ENABLED BY DATE REBUILD"
-    )
-
-    print(
-        "Research Indexes          : "
-        "ENABLED"
-    )
-
-    print(
-        "Raw NSE Files             : "
-        "UNCHANGED"
-    )
-
-    print(
-        "Historical Fabrication    : "
-        "PROHIBITED"
-    )
+    message = summary.get("message")
+    if message:
+        print(f"Message                     : {message}")
 
     print("-" * 100)
-
-    print(
-        f"Status                    : "
-        f"{summary['status']}"
-    )
-
+    print(f"Status                     : {summary.get('status', 'SUCCESS')}")
     print("=" * 100)
-
 
 # ==========================================================
 # COMMAND LINE
@@ -2472,8 +2745,7 @@ def parse_arguments() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Build AQSD NSE historical "
-            "Futures & Options SQLite database."
+            "Build AQSD NSE historical Futures & Options SQLite database."
         )
     )
 
@@ -2481,25 +2753,28 @@ def parse_arguments() -> argparse.Namespace:
         "--sessions",
         type=int,
         default=DEFAULT_SESSIONS,
-        help=(
-            "Number of processed trading sessions."
-        ),
+        help="Number of processed trading sessions to inspect.",
     )
 
     parser.add_argument(
         "--end-date",
         required=False,
+        help="Last trading date YYYY-MM-DD.",
+    )
+
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
         help=(
-            "Last trading date YYYY-MM-DD."
+            "Explicitly rebuild every selected session. "
+            "Without this flag, only new/incomplete sessions are processed."
         ),
     )
 
     parser.add_argument(
         "--status",
         action="store_true",
-        help=(
-            "Display current database status."
-        ),
+        help="Display current database status.",
     )
 
     return parser.parse_args()
@@ -2541,9 +2816,13 @@ def main() -> None:
 
     try:
 
+        if arguments.rebuild:
+            assert_full_rebuild_allowed()
+
         summary = run_builder(
             sessions=sessions,
             end_date=end_date,
+            rebuild=bool(arguments.rebuild),
         )
 
     except Exception as exc:

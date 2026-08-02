@@ -1,0 +1,21 @@
+{
+  "module_id": "FDB-002",
+  "module_version": "1.0.0",
+  "frozen": true,
+  "frozen_at": "2026-08-02T19:10:14+05:30",
+  "unfrozen_at": null,
+  "reason": "Validated AQSD NSE F&O historical database baseline.",
+  "policy": "APPEND_ONLY_NORMAL_OPERATION",
+  "full_rebuild_allowed": false,
+  "baseline": {
+    "database": "NSE_FNO_Historical.db",
+    "sessions": 250,
+    "first_session": "2025-07-25",
+    "last_session": "2026-07-31",
+    "historical_rows": 9760876,
+    "unique_underlyings": 249,
+    "contract_master_rows": 294515,
+    "ndq_status": "SUCCESS",
+    "critical_issues": 0
+  }
+}
